@@ -1,0 +1,40 @@
+name: Statische Web-App auf GitHub Pages
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+jobs:
+  verify-and-upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Kerntests
+        run: node --test tests/*.test.mjs
+      - name: Nur öffentliche statische Dateien vorbereiten
+        run: |
+          mkdir public
+          cp index.html public/
+          cp -R assets public/assets
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+  deploy:
+    needs: verify-and-upload
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: GitHub Pages bereitstellen
+        id: deployment
+        uses: actions/deploy-pages@v4
