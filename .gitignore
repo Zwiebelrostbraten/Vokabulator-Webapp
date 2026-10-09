@@ -1,3 +1,12 @@
 # Wrangler/Miniflare local development state
 .wrangler/
 worker/.wrangler/
+
+node_modules/
+dist/
+playwright-report/
+test-results/
+
+# Local Worker secrets (including test keys)
+.dev.vars*
+.env*

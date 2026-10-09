@@ -1,0 +1,16 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { build } from 'vite';
+test('production build has relative asset links and no worker, tests, source maps or storage assets',async()=>{
+  await build({base:'./',logLevel:'silent'});
+  const html=await readFile('dist/index.html','utf8');
+  assert.match(html,/src="\.\/assets\/[^" ]+\.js"/);
+  assert.match(html,/href="\.\/assets\/[^" ]+\.css"/);
+  const {readdir}=await import('node:fs/promises');
+  assert.deepEqual((await readdir('dist')).sort(),['assets','index.html']);
+  assert.ok((await readdir('dist/assets')).every(f=>/\.(js|css)$/.test(f)));
+  const workflow=await readFile('.github/workflows/pages.yml','utf8');
+  assert.match(workflow,/npm ci/);assert.match(workflow,/npm run build/);assert.match(workflow,/path: dist/);
+  assert.match(workflow,/npm run lint/);assert.match(workflow,/npm run check/);
+});

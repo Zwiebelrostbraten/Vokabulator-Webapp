@@ -33,7 +33,11 @@ test('workerd lookup normalizes results and rejects redirects without following 
   try {
     const source = fileURLToPath(new URL('../worker/index.mjs', import.meta.url));
     await writeFile(join(dir, 'index.mjs'), `import { handleRequest } from ${JSON.stringify(source)};
-export default { fetch(request) { return handleRequest(request, (url, options) => fetch('http://127.0.0.1:${upstreamPort}/lookup', options)); } };`);
+const env={TURNSTILE_SECRET:'runtime-test-only',TICKET_HMAC_KEY:'runtime-test-only-key'.repeat(4),LOOKUP_RATE_LIMITER:{limit:async()=>({success:true})},SESSION_RATE_LIMITER:{limit:async()=>({success:true})}};
+export default { fetch(request) {
+ const headers=new Headers(request.headers);headers.set('CF-Connecting-IP','192.0.2.1');
+ return handleRequest(new Request(request,{headers}), (url, options) => url.includes('siteverify') ? Response.json({success:true,hostname:'127.0.0.1',action:'vocabulary'}) : fetch('http://127.0.0.1:${upstreamPort}/lookup', options),env);
+} };`);
     await writeFile(join(dir, 'wrangler.toml'), 'name="vokabulator-runtime-test"\nmain="index.mjs"\ncompatibility_date="2026-10-08"\n');
     child = spawn('npx', ['--yes', 'wrangler', 'dev', '--config', join(dir, 'wrangler.toml'), '--local', '--port', String(port), '--inspector-port', '0'], { detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
     child.stdout.on('data', data => { output += data; });
@@ -46,12 +50,17 @@ export default { fetch(request) { return handleRequest(request, (url, options) =
       catch { await new Promise(resolve => setTimeout(resolve, 100)); }
     }
     assert.ok(response, output);
+    assert.equal(response.status, 401);
+    const session=await fetch(`http://127.0.0.1:${port}/session`,{method:'POST',headers:{Origin:'http://127.0.0.1:8080','Content-Type':'application/json'},body:JSON.stringify({token:'runtime-token'})});
+    assert.equal(session.status,200);
+    const headers={Origin:'http://127.0.0.1:8080',Authorization:'Bearer '+(await session.json()).ticket};
+    response=await fetch(url,{headers});
     assert.equal(response.status, 200, await response.clone().text());
-    assert.deepEqual(await response.json(), { query: 'amo', found: true, lemma: 'amō', meanings: ['lieben'], wordType: 'VERB', classLabel: '' });
+    assert.deepEqual(await response.json(), { query: 'amo', found: true, lemma: 'amō', meanings: ['lieben'], wordType: 'VERB', classLabel: '', deponens: false, flexion: [] });
     assert.equal(response.headers.get('cache-control'), 'no-store');
     assert.equal(response.headers.get('access-control-allow-origin'), 'http://127.0.0.1:8080');
     redirect = true;
-    assert.equal((await fetch(url)).status, 502);
+    assert.equal((await fetch(url,{headers})).status, 502);
     assert.equal(followed, 0);
   } finally {
     if (child) { process.kill(-child.pid, 'SIGTERM'); await new Promise(resolve => child.once('exit', resolve)); }
