@@ -5,7 +5,7 @@
 <a class="skip" href="#main">Zum Inhalt springen</a>
 <header><a class="brand" href="./"><span class="logo" aria-hidden="true">V.</span> Vokabulator</a><span class="privacy">Ohne Speicherung</span></header>
 <main id="main">
-<section class="intro"><p class="eyebrow">DEIN TEXT. DEINE WÖRTER.</p><h1>Aus Latein wird<br>deine Vokabelliste.</h1><p>Navigium findet Grundformen, Bedeutungen und Grammatik.<br>Deine Liste wird direkt als Excel-Datei heruntergeladen – auf Wunsch auch als Brainyoo-Kartei.</p></section>
+<section class="intro"><p class="eyebrow">DEIN TEXT. DEINE WÖRTER.</p><h1>Aus Latein wird<br>deine Vokabelliste.</h1><p>Navigium findet Grundformen, Bedeutungen und Grammatik.<br>Lade deine fertige Liste als Excel-Datei herunter – auf Wunsch auch als Brainyoo-Kartei.</p></section>
 <noscript><p class="error">Bitte JavaScript aktivieren, um Vokabellisten zu erstellen.</p></noscript>
 <form id="generator" class="panel" autocomplete="off">
 <fieldset id="options"><legend>1 · Text und Auswahl</legend>
@@ -17,9 +17,10 @@
 <label class="check"><input id="brainyoo" type="checkbox"> Brainyoo-Export (.by2) ermöglichen</label><label for="lesson">Lektionsname für Brainyoo</label><input id="lesson" maxlength="160" placeholder="Zum Beispiel: Caesar · Gallischer Krieg" disabled>
 </div><fieldset class="filters"><legend>Wortarten</legend><label class="check"><input id="all-types" type="checkbox"> Alle auswählen</label><div id="wordtypes"></div></fieldset></div>
 </fieldset><div class="actions"><button id="generate" type="submit" class="primary">Vokabeln generieren</button><button id="cancel" type="button" hidden>Abbrechen</button></div>
-<p class="hint">Nach erfolgreichem Abschluss startet der Download automatisch. Der erste brauchbare Wörterbuchtreffer kann im Textzusammenhang eine andere Bedeutung haben.</p>
+<p class="hint">Nach erfolgreichem Abschluss wählst du die gewünschte Datei zum Herunterladen. Der erste brauchbare Wörterbuchtreffer kann im Textzusammenhang eine andere Bedeutung haben.</p>
 </form>
-<section class="panel" aria-labelledby="status-heading"><h2 id="status-heading">2 · Fortschritt</h2><progress id="progress" max="1" value="0" aria-label="Fortschritt der Navigium-Abfragen"></progress><p id="status" role="status" aria-live="polite">Bereit. Füge deinen Text ein.</p><p id="count" class="hint" aria-label="Exportierte Vokabeln">Noch keine Vokabeln exportiert.</p><details><summary>Protokoll der Abfragen</summary><pre id="log" aria-label="Abfrageprotokoll"></pre></details></section>
-<p class="storage-note">Datenquelle: <a href="https://www.navigium.de" target="_blank" rel="noopener noreferrer">Navigium.de</a>. Einzelne Wortformen werden über den Worker an Navigium gesendet, der gesamte Text bleibt im Browser. App und Worker speichern weder Texte noch Ergebnisse dauerhaft. Beim Neuladen oder Schließen gehen Eingaben verloren; die erzeugte Liste wird direkt heruntergeladen.</p>
+<section class="panel" aria-labelledby="status-heading"><h2 id="status-heading">2 · Fortschritt</h2><progress id="progress" max="1" value="0" aria-label="Fortschritt der Navigium-Abfragen"></progress><p id="status" role="status" aria-live="polite">Bereit. Füge deinen Text ein.</p><p id="count" class="hint" aria-label="Erstellte Vokabeln">Noch keine Vokabeln erstellt.</p><details><summary>Protokoll der Abfragen</summary><pre id="log" aria-label="Abfrageprotokoll"></pre></details></section>
+<section id="export-menu" class="panel" aria-labelledby="export-heading" hidden><h2 id="export-heading">3 · Dateien herunterladen</h2><p class="hint">Deine zuletzt erstellte Liste ist bereit. Wähle eine Datei zum Herunterladen. Während einer neuen Abfrage sind die Downloads kurz gesperrt.</p><div class="actions"><button id="xlsx" type="button" class="primary">Excel (.xlsx) herunterladen</button><button id="by2" type="button" hidden>Brainyoo (.by2) herunterladen</button></div></section>
+<p class="storage-note">Datenquelle: <a href="https://www.navigium.de" target="_blank" rel="noopener noreferrer">Navigium.de</a>. Einzelne Wortformen werden über den Worker an Navigium gesendet, der gesamte Text bleibt im Browser. App und Worker speichern weder Texte noch Ergebnisse dauerhaft. Beim Neuladen oder Schließen gehen Eingaben verloren; lade deine fertige Liste vor dem Schließen herunter.</p>
 </main><footer><span>Vokabulator</span><a href="https://github.com/Zwiebelrostbraten/Vokabulator" target="_blank" rel="noopener noreferrer">Das Python-Original · MIT-Lizenz</a></footer>
 </body></html>

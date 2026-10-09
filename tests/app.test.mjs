@@ -29,7 +29,7 @@ test('native sliders expose defaults and synchronize numeric outputs on input an
     slider.value=min;slider.dispatchEvent(new doc.defaultView.Event('change'));assert.equal(output.value,min);
   }
 });
-test('successful generation directly downloads original Excel and optional Brainyoo with filenames and MIME types',async()=>{
+test('successful generation offers explicit Excel and Brainyoo downloads with filenames and MIME types',async()=>{
   const calls=[],downloads=[];
   const {$,doc}=setup({generate:async(text,base,options)=>{calls.push({text,options});options.update(1,2);options.log('<img src=x onerror=evil()>');return fixture();},xlsx:groups=>JSON.stringify(groups),by2:(groups,name)=>name,download:(...args)=>downloads.push(args)});
   $('text').value='rosam';$('parallel').value='2';$('meanings').value='3';$('brainyoo').click();$('lesson').value='Meine Lektion';
@@ -37,14 +37,16 @@ test('successful generation directly downloads original Excel and optional Brain
   assert.equal(calls[0].text,'rosam');assert.equal(calls[0].options.parallel,2);assert.equal(calls[0].options.meanings,3);
   assert.equal($('options').disabled,false);assert.equal($('progress').value,1);
   assert.equal($('log').querySelector('img'),null);assert.match($('log').textContent,/<img/);
+  assert.equal(downloads.length,0);assert.equal($('export-menu').hidden,false);
+  $('xlsx').click();$('by2').click();
   assert.deepEqual(downloads,[
     [JSON.stringify(fixture()),'Vokabelliste.xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
     ['Meine Lektion','Meine-Lektion.by2','application/zip']
   ]);
-  assert.match($('status').textContent,/1 Vokabel.*Excel.*Brainyoo.*Download/);
+  assert.match($('status').textContent,/1 Vokabel.*Download/);
   assert.equal($('count').textContent,'1 Vokabel · Nomen: 1');
   assert.match($('status').textContent,/Fertig: 1 Vokabel in/);
-  assert.equal(doc.querySelector('#results, [data-field], [data-delete], #xlsx, #by2, .export-bar'),null);
+  assert.equal(doc.querySelector('#results, [data-field], [data-delete]'),null);
   assert.equal(doc.querySelectorAll('textarea').length,1);
 });
 test('invalid input, filters, numeric values and lesson prevent requests; errors are announced',async()=>{
@@ -56,16 +58,19 @@ test('invalid input, filters, numeric values and lesson prevent requests; errors
   doc.querySelector('[name="wordtype"]').checked=true;$('brainyoo').click();$('generate').click();await tick();assert.equal(calls,0);
   $('lesson').value='Lektion';$('generate').click();await tick();assert.equal(calls,1);assert.match($('status').textContent,/offline/);assert.equal($('generate').disabled,false);
 });
-test('Excel alone downloads automatically; cancellation never downloads again',async()=>{
+test('Excel menu appears only after success and retains its batch after cancellation',async()=>{
   let run=0;const downloads=[];
   const {$}=setup({xlsx:()=>new Uint8Array([1]),by2:()=>assert.fail('optional export'),download:(...args)=>downloads.push(args),generate:async(text,base,{signal})=>{
     if(!run++)return fixture();
     return new Promise((resolve,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));
   }});
-  $('text').value='rosa';$('generate').click();await tick();assert.equal(downloads.length,1);
+  assert.equal($('export-menu').hidden,true);
+  $('text').value='rosa';$('generate').click();await tick();assert.equal(downloads.length,0);
+  assert.equal($('by2').hidden,true);$('xlsx').click();assert.equal(downloads.length,1);
   assert.equal(downloads[0][1],'Vokabelliste.xlsx');
-  $('generate').click();await tick();$('cancel').click();await tick();
+  $('generate').click();await tick();assert.equal($('progress').value,0);assert.equal($('xlsx').disabled,true);$('xlsx').click();assert.equal(downloads.length,1);$('cancel').click();await tick();
   assert.match($('status').textContent,/Abgebrochen/);assert.equal(downloads.length,1);assert.equal($('generate').disabled,false);
+  assert.equal($('export-menu').hidden,false);assert.equal($('xlsx').disabled,false);$('xlsx').click();assert.equal(downloads.length,2);
 });
 test('invalid Brainyoo lesson length prevents authorization, generation and downloads',async()=>{
   const {$}=setup({authorize:()=>assert.fail('authorize'),generate:()=>assert.fail('generate'),download:()=>assert.fail('download')});
@@ -78,4 +83,16 @@ test('one authorization per run before generation, ticket passed to batch; failu
  const order=[];const {$}=setup({authorize:async()=>{order.push('authorize');return 'signed-ticket';},generate:async(_text,_base,options)=>{order.push('generate');assert.equal(options.ticket,'signed-ticket');return fixture();}});
  $('text').value='rosa rosam';$('generate').click();await tick();assert.deepEqual(order,['authorize','generate']);
  const broken=setup({authorize:async()=>{throw Error('Sicherheitsprüfung fehlgeschlagen.');},generate:async()=>assert.fail('generate')});broken.$('text').value='rosa';broken.$('generate').click();await tick();assert.match(broken.$('status').textContent,/Sicherheitsprüfung fehlgeschlagen/);assert.equal(broken.$('generate').disabled,false);
+});
+test('empty and failed runs retain completed files, counts and Brainyoo settings until a successful replacement',async()=>{
+  let result=fixture();const downloads=[];
+  const {$}=setup({generate:async()=>{if(result instanceof Error)throw result;return result;},xlsx:g=>JSON.stringify(g),by2:(_g,n)=>n,download:(...args)=>downloads.push(args)});
+  $('text').value='rosa';result={};$('generate').click();await tick();assert.equal($('export-menu').hidden,true);
+  result=Error('offline');$('generate').click();await tick();assert.equal($('export-menu').hidden,true);
+  result=fixture();$('brainyoo').click();$('lesson').value='Alte Lektion';$('generate').click();await tick();
+  const count=$('count').textContent;$('brainyoo').click();$('lesson').value='Neue Lektion';
+  result={};$('generate').click();await tick();assert.equal($('count').textContent,count);assert.equal($('export-menu').hidden,false);assert.match($('status').textContent,/zuletzt erstellten Dateien bleiben verfügbar/);
+  result=Error('offline');$('generate').click();await tick();assert.equal($('count').textContent,count);assert.match($('status').textContent,/offline.*zuletzt erstellten Dateien bleiben verfügbar/);
+  $('by2').click();assert.equal(downloads[0][0],'Alte Lektion');assert.equal(downloads[0][1],'Alte-Lektion.by2');
+  result={Nomen:[{lemma:'neu',fields:{}}]};$('generate').click();await tick();assert.equal($('by2').hidden,true);$('by2').click();assert.equal(downloads.length,1);$('xlsx').click();assert.equal(downloads[1][0],JSON.stringify(result));
 });
