@@ -1,0 +1,3 @@
+# Wrangler/Miniflare local development state
+.wrangler/
+worker/.wrangler/

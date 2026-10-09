@@ -1,0 +1,7 @@
+name = "vokabulator-navigium"
+main = "index.mjs"
+compatibility_date = "2026-10-08"
+workers_dev = true
+# No storage bindings. Request logging is disabled.
+[observability]
+enabled = false

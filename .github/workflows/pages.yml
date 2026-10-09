@@ -15,13 +15,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Kerntests
-        run: node --test tests/*.test.mjs
+      - name: Node-Tests und Syntax
+        run: |
+          node --test tests/*.test.mjs
+          for file in assets/*.mjs worker/*.mjs; do node --check "$file"; done
       - name: Nur öffentliche statische Dateien vorbereiten
         run: |
           mkdir public
           cp index.html public/
-          cp -R assets public/assets
+          mkdir public/assets
+          cp assets/app.mjs assets/core.mjs assets/lookup.mjs assets/config.mjs assets/style.css public/assets/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: public
