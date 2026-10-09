@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as XLSX from '@e965/xlsx';
 import { unzipSync, strFromU8 } from 'fflate';
-test('real browser: project subpath, accessible responsive review and actual downloads without persistent storage', {timeout:60000,skip:process.env.RUN_BROWSER_TESTS!=='1'?'Explicit browser test: npm run test:browser':false},async()=>{
+test('real browser: project subpath, accessible responsive sliders and direct actual downloads without persistent storage', {timeout:60000,skip:process.env.RUN_BROWSER_TESTS!=='1'?'Explicit browser test: npm run test:browser':false},async()=>{
   const outDir=await mkdtemp(join(tmpdir(),'vokabulator-browser-'));
   await build({base:'/vokabulator/',build:{outDir,emptyOutDir:true},logLevel:'silent',plugins:[{name:'public-test-config',transform(_code,id){if(id.endsWith('/assets/config.mjs'))return 'export const API_BASE_URL="https://worker.test";export const TURNSTILE_SITE_KEY="public-test-sitekey";';}}]});
   const server=await preview({base:'/vokabulator/',build:{outDir},preview:{host:'127.0.0.1',port:0},logLevel:'silent'});let browser;
@@ -35,26 +35,57 @@ test('real browser: project subpath, accessible responsive review and actual dow
     const columns=await page.locator('.options-grid').evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(' ').length);
     assert.equal(columns,2,'desktop options have two columns');
     await page.getByLabel('Lateinischer Text',{exact:true}).fill('rosa rosam rosa');
-    await page.getByLabel('Bedeutungen pro Vokabel').fill('3');
+    for(const [name,id,initial,max] of [['Parallele Navigium-Anfragen','parallel','64','128'],['Bedeutungen pro Vokabel','meanings','1','3']]) {
+      const slider=page.getByRole('slider',{name:new RegExp(name)});
+      assert.equal(await slider.inputValue(),initial);
+      assert.equal(await page.locator('#'+id+'-value').textContent(),initial);
+      await slider.focus();await slider.press('ArrowRight');
+      assert.equal(await slider.inputValue(),String(Number(initial)+1));
+      assert.equal(await page.locator('#'+id+'-value').textContent(),String(Number(initial)+1));
+      await slider.press('Home');assert.equal(await slider.inputValue(),'1');
+      assert.equal(await page.locator('#'+id+'-value').textContent(),'1');
+      await slider.press('End');assert.equal(await slider.inputValue(),max);
+      assert.equal(await page.locator('#'+id+'-value').textContent(),max);
+    }
+    await page.getByRole('slider',{name:/Parallele Navigium/}).evaluate(el=>{el.value='2';el.dispatchEvent(new Event('input',{bubbles:true}));});
+    assert.equal(await page.locator('#parallel-value').textContent(),'2');
+    assert.equal(await page.locator('textarea').count(),1);
+    assert.equal(await page.locator('#results, [data-field], [data-delete], #xlsx, #by2, .export-bar').count(),0);
     await page.getByLabel('Brainyoo-Export (.by2) ermöglichen',{exact:true}).check();
     await page.getByLabel('Lektionsname für Brainyoo').fill('Meine Lektion & Text');
+    const downloads=[];
+    const bothDownloads=new Promise(resolve=>page.on('download',download=>{downloads.push(download);if(downloads.length===2)resolve();}));
     await page.getByRole('button',{name:'Vokabeln generieren',exact:true}).click();
-    await page.getByRole('status').filter({hasText:'Fertig:'}).waitFor();
+    await bothDownloads;
+    await page.locator('#status').filter({hasText:'Fertig:'}).waitFor();
+    assert.match(await page.locator('#status').textContent(),/Excel und Brainyoo: Download gestartet/);
+    assert.match(await page.locator('#count').textContent(),/1 Vokabel · Nomen: 1/);
     assert.equal(sessions,1);assert.equal(challenges,1);
     assert.deepEqual(queries.sort(),['rosa','rosam']);
-    await page.getByLabel('Bedeutung II. – rosa, -ae f.',{exact:true}).fill('eigene Bedeutung');
-    const [excel]=await Promise.all([page.waitForEvent('download'),page.getByRole('button',{name:'Excel (.xlsx) herunterladen'}).click()]);
+    const [excel,by2]=downloads;
     assert.equal(excel.suggestedFilename(),'Vokabelliste.xlsx');
+    assert.equal(by2.suggestedFilename(),'Meine-Lektion-Text.by2');
     const workbook=XLSX.read(await readFile(await excel.path()));
-    assert.equal(workbook.Sheets.Nomen.F2.v,'eigene Bedeutung');
+    assert.equal(workbook.Sheets.Nomen.F2.v,'Blume');
+    assert.equal(workbook.Sheets.Nomen.G2.v,'Blüte');
     assert.equal(workbook.Sheets.Nomen.H2.v,'rosa; rosam');
-    const [by2]=await Promise.all([page.waitForEvent('download'),page.getByRole('button',{name:'Brainyoo (.by2) herunterladen'}).click()]);
     const xml=strFromU8(unzipSync(await readFile(await by2.path()))['by_content.xml']);
     const structure=await page.evaluate(xml=>{
       const document=new DOMParser().parseFromString(xml,'text/xml');
       return {errors:document.querySelectorAll('parsererror').length,cards:document.querySelectorAll('vocabularycard').length,title:document.querySelector('lesson').getAttribute('title'),answer:document.querySelector('vocabularyAnswer').textContent};
     },xml);
-    assert.equal(structure.errors,0);assert.equal(structure.cards,1);assert.equal(structure.title,'Meine Lektion & Text');assert.match(structure.answer,/eigene Bedeutung/);
+    assert.equal(structure.errors,0);assert.equal(structure.cards,1);assert.equal(structure.title,'Meine Lektion & Text');assert.match(structure.answer,/Rose\nBlume\nBlüte/);
+    await page.getByLabel('Brainyoo-Export (.by2) ermöglichen',{exact:true}).uncheck();
+    assert.equal(await page.getByLabel('Lektionsname für Brainyoo').isDisabled(),true);
+    await page.getByRole('slider',{name:/Bedeutungen pro Vokabel/}).press('Home');
+    const [onlyExcel]=await Promise.all([page.waitForEvent('download'),page.getByRole('button',{name:'Vokabeln generieren',exact:true}).click()]);
+    await page.locator('#status').filter({hasText:'Excel: Download gestartet.'}).waitFor();
+    assert.equal(onlyExcel.suggestedFilename(),'Vokabelliste.xlsx');
+    const shortWorkbook=XLSX.read(await readFile(await onlyExcel.path()));
+    assert.equal(shortWorkbook.Sheets.Nomen.E2.v,'Rose');
+    assert.equal(shortWorkbook.Sheets.Nomen.F1.v,'Textbelege');
+    assert.equal(downloads.length,3);
+    assert.equal(sessions,2);
     for(const width of [1200,390]) {
       await page.setViewportSize({width,height:900});
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,`no horizontal overflow at ${width}`);
