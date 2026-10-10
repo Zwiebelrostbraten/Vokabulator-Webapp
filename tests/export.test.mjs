@@ -92,6 +92,37 @@ test('all nine card questions follow Excel first/final or second column; rich An
 });
 const verbFields={'Infinitiv':'amāre','1. Ps. Sg. Präs. Ind. Akt.':'amō','1. Ps. Sg. Perf. Ind. Akt.':'amāvī',PPP:'amātum','Konj.':'a-Konjugation','Bedeutung I.':'lieben','Bedeutung II.':'mögen','Bedeutung III.':'schätzen',Textbelege:'amāre'};
 const verbDisplayHeaders=['Infinitiv','1. Ps. Sg.\nPräs. Ind.\nAkt.','1. Ps. Sg.\nPerf. Ind.\nAkt.','PPP','Konj.','Bedeutung I.','Bedeutung II.','Bedeutung III.','Textbelege'];
+const shortVerbFields={...verbFields,'1. Ps. Sg. Perf. Ind. Akt.':'adiī'};
+test('PDF short verb forms allocate widths independently of the two special headers',async()=>{
+ const {pdfDocument}=await import('../assets/export.mjs');
+ const table=pdfDocument({Verben:[{fields:shortVerbFields}]}).content.find(x=>x.table).table;
+ assert.deepEqual(table.widths,[53,42,42,42,73,'*','*','*',58]);
+ assert.deepEqual(table.body[0].map(cell=>cell.text),verbDisplayHeaders);
+ assert.deepEqual(table.body.slice(1),[Object.values(shortVerbFields)]);
+ const ordinary=pdfDocument({Nomen:[{fields:shortVerbFields}]}).content.find(x=>x.table).table;
+ assert.equal(ordinary.widths[1],120,'other categories still measure the original header');
+ assert.equal(ordinary.widths[2],120);
+});
+test('PDF short verb forms render three-line headings and stay within column and print bounds',async()=>{
+ const {pdfDocument,toPdf}=await import('../assets/export.mjs'),{getDocument}=await import('pdfjs-dist/legacy/build/pdf.mjs');
+ const groups={Verben:[{fields:shortVerbFields}]},table=pdfDocument(groups).content.find(x=>x.table).table;
+ const pdf=await getDocument({data:await toPdf(groups)}).promise;
+ assert.equal(pdf.numPages,1);
+ const page=await pdf.getPage(1),items=(await page.getTextContent()).items.filter(item=>item.str.trim());
+ for(const index of [1,2]) {
+  const x=46+table.widths.slice(0,index).reduce((sum,width)=>sum+width+11,0);
+  const lines=items.filter(item=>Math.abs(item.transform[4]-x)<0.01).slice(0,3);
+  assert.deepEqual(lines.map(item=>item.str),verbDisplayHeaders[index].split('\n'));
+  assert.ok(lines[0].transform[5]>lines[1].transform[5] && lines[1].transform[5]>lines[2].transform[5]);
+  for(const line of lines)assert.ok(line.width<=table.widths[index],'heading fits content width');
+ }
+ for(const value of Object.values(shortVerbFields))assert.ok(items.some(item=>item.str===value),value);
+ for(const item of items) {
+  assert.ok(item.transform[4]>=40-0.001 && item.transform[4]+item.width<=page.view[2]-40+0.001,`printable horizontal margins: ${item.str}`);
+  assert.ok(item.transform[5]>=0 && item.transform[5]<=page.view[3],`vertical page bounds: ${item.str}`);
+  if(item.str!=='1 / 1')assert.ok(item.transform[5]>=40 && item.transform[5]<=page.view[3]-40,`printable vertical margins: ${item.str}`);
+ }
+});
 test('PDF verb display headers have exactly three rendered lines, preserve cells and fit printable margins',async()=>{
  const {pdfDocument,toPdf,toOds,toCsv}=await import('../assets/export.mjs'),{getDocument}=await import('pdfjs-dist/legacy/build/pdf.mjs');
  const narrowFields={...verbFields,'Konj.':'a','Bedeutung IV.':'achten','Bedeutung V.':'würdigen'};
@@ -101,8 +132,8 @@ test('PDF verb display headers have exactly three rendered lines, preserve cells
  assert.deepEqual(table.body[0].map(cell=>cell.text),[...verbDisplayHeaders,'Bedeutung IV.','Bedeutung V.']);
  assert.deepEqual(table.body.slice(1),[Object.values(narrowFields)]);
  assert.deepEqual(pdfDocument({Nomen:[{fields:verbFields}]}).content.find(x=>x.table).table.body[0].map(cell=>cell.text),Object.keys(verbFields),'display mapping is limited to Verben');
- assert.deepEqual(table.widths,pdfDocument({Nomen:[{fields:narrowFields}]}).content.find(x=>x.table).table.widths,'allocation uses original headers');
- assert.ok(table.widths[1]<95 && table.widths[2]<95,'final compression requires wrapping');
+ assert.equal(table.widths[1],42,'short present forms keep the content-driven minimum');
+ assert.equal(table.widths[2],42,'short perfect forms keep the content-driven minimum');
  for(const index of [1,2]) {
   const x=46+table.widths.slice(0,index).reduce((sum,width)=>sum+width+11,0);
   const lines=items.filter(item=>Math.abs(item.transform[4]-x)<0.01).slice(0,3);
@@ -121,7 +152,7 @@ test('PDF verb display headers have exactly three rendered lines, preserve cells
 });
 test('PDF verb headers stay unbroken when long forms leave sufficiently wide final columns',async()=>{
  const {pdfDocument,toPdf}=await import('../assets/export.mjs'),{getDocument}=await import('pdfjs-dist/legacy/build/pdf.mjs');
- const fields={...verbFields,'1. Ps. Sg. Präs. Ind. Akt.':'abcdefghijklmnopqrst','1. Ps. Sg. Perf. Ind. Akt.':'abcdefghijklmnopqrstu'};
+ const fields={...verbFields,'1. Ps. Sg. Präs. Ind. Akt.':'abcdefghijklmnopqrstuvw','1. Ps. Sg. Perf. Ind. Akt.':'abcdefghijklmnopqrstuvwx'};
  const verbs={Verben:[{fields}]},table=pdfDocument(verbs).content.find(x=>x.table).table;
  assert.deepEqual(table.body[0].map(cell=>cell.text),Object.keys(fields));
  assert.deepEqual(table.body.slice(1),[Object.values(fields)]);

@@ -65,11 +65,14 @@ export function toCsv(groups) {
 // Count displayed grapheme clusters (including combining marks/surrogate pairs),
 // using the longest explicit line rather than counting newline characters.
 const pdfSegmenter=new Intl.Segmenter('de',{granularity:'grapheme'});
-function pdfWidths(headers,body) {
+function pdfWidths(headers,body,type) {
   const widths=headers.map((header,i)=>{
     if(header.startsWith('Bedeutung'))return '*';
     let longest=0;
-    for(const row of [headers,...body])for(const line of String(row[i]).split(/\r\n|[\r\n]/u)) {
+    // These verb labels adapt to the final width; only actual forms determine
+    // their preferred width. Other headers still participate normally.
+    const contentOnly=type==='Verben' && ['1. Ps. Sg. Präs. Ind. Akt.','1. Ps. Sg. Perf. Ind. Akt.'].includes(header);
+    for(const row of contentOnly?body:[headers,...body])for(const line of String(row[i]).split(/\r\n|[\r\n]/u)) {
       let length=0;for(const _segment of pdfSegmenter.segment(line))length++;
       longest=Math.max(longest,length);
     }
@@ -108,7 +111,7 @@ export function pdfDocument(groups,name='Vokabelliste') {
         cost+=next;end++;
       }
       const sectionHeaders=headers.slice(start,end),sectionBody=body.map(row=>row.slice(start,end));
-      const widths=pdfWidths(sectionHeaders,sectionBody);
+      const widths=pdfWidths(sectionHeaders,sectionBody,type);
       const displayHeaders=sectionHeaders.map((header,i)=>{
         // Natural one-line advances in the embedded Roboto bold font at 9pt
         // (font units / 2048 * 9). Compare usable content AFTER compression.
