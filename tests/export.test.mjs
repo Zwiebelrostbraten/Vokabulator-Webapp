@@ -44,11 +44,18 @@ test('CSV BOM, German delimiter, union fields, literal formulas and multiline qu
 });
 test('PDF has readable Unicode meanings/evidence and unclipped multipage content',async()=>{
  const {toPdf}=await import('../assets/export.mjs');const {getDocument}=await import('pdfjs-dist/legacy/build/pdf.mjs');
- const many={Nomen:Array.from({length:100},(_,i)=>({fields:{Wort:`rōsa ${i}`,Bedeutung:'Blüte süß ß æ',Textbelege:'rosam\n'+('Beleg '.repeat(30))}}))};
+ const many={Nomen:Array.from({length:100},(_,i)=>({fields:{'Nom. Sg.':`rōsa ${i}`,'Gen. Sg.':'rōsae',Genus:'f.','Dekl.-Kl.':'a-Dekl.','Bedeutung I.':'Blüte süß ß æ','Bedeutung II.':'Rose','Bedeutung III.':'Blume',Textbelege:'rosam\n'+('Beleg '.repeat(30))}}))};
  const pdf=await getDocument({data:await toPdf(many,'Übung'),useSystemFonts:true}).promise;assert.ok(pdf.numPages>1);let text='';for(let n=1;n<=pdf.numPages;n++) {
   const page=await pdf.getPage(n),items=(await page.getTextContent()).items;
   for(const item of items) {assert.ok(item.transform[4]>=0 && item.transform[4]+item.width<=page.view[2]+1,'text within horizontal page bounds');assert.ok(item.transform[5]>=0 && item.transform[5]<=page.view[3],'text within vertical page bounds');}
-  text+=items.map(x=>x.str).join(' ');
+  for(const item of items.filter(x=>x.str.trim())) {
+   assert.ok(item.transform[4]>=39 && item.transform[4]+item.width<=page.view[2]-39,'text stays inside printable margins');
+   for(const other of items.filter(x=>x.str.trim() && x.transform[5]===item.transform[5] && x.transform[4]>item.transform[4]))assert.ok(item.transform[4]+item.width<=other.transform[4]+1,'table text does not overlap');
+  }
+  const pageText=items.map(x=>x.str).join(' ');
+  for(const header of Object.keys(many.Nomen[0].fields))assert.ok(items.some(x=>x.str===header),'repeated table header '+header+' on page '+n);
+  assert.ok(page.view[2]>page.view[3],'landscape A4');
+  text+=pageText;
  }
  for(const expected of ['Übung','Nomen','rōsa 99','Blüte süß ß æ','Textbelege','Beleg'])assert.ok(text.includes(expected),expected);
 });
@@ -65,10 +72,28 @@ test('Anki checksum matches plain front text and names/HTML controls stay litera
  const {toAnki}=await import('../assets/export.mjs');const {default:init}=await import('sql.js');const SQL=await init();
  const db=new SQL.Database(unzipSync(await toAnki({Adverbien:[{fields:{Adverb:'<ō> & ü',Bedeutung:'immer',Textbelege:'x\x1f\ny'}}]},'A & B'))['collection.anki2']);
  const [fields,csum]=db.exec('select flds,csum from notes')[0].values[0];assert.equal(fields.split('\x1f').length,2);assert.match(fields,/&lt;ō&gt; &amp; ü/);
- const digest=await crypto.subtle.digest('SHA-1',new TextEncoder().encode('<ō> & üAdverbienxy'));assert.equal(csum,new DataView(digest).getUint32(0));db.close();
+ const digest=await crypto.subtle.digest('SHA-1',new TextEncoder().encode('immerWortart: Adverbien'));assert.equal(csum,new DataView(digest).getUint32(0));db.close();
 });
 test('Anki GUIDs retain 128-bit identity across independently generated packages',async()=>{
  const {toAnki}=await import('../assets/export.mjs');const {default:init}=await import('sql.js');const SQL=await init();const guids=[];
  for(let i=0;i<2;i++) {const db=new SQL.Database(unzipSync(await toAnki(groups,'Übung'))['collection.anki2']);guids.push(...db.exec('select guid from notes')[0].values.flat());db.close();}
  assert.equal(new Set(guids).size,4);assert.ok(guids.every(g=>/^[a-f0-9]{32}$/.test(g)));
+});
+test('all nine card questions follow Excel first/final or second column; rich Anki answers and exact deck name survive',async()=>{
+ const {WORD_TYPES}=await import('../assets/vocabulary.mjs');const {toAnki}=await import('../assets/export.mjs');const {default:init}=await import('sql.js');const SQL=await init();
+ const g=Object.fromEntries(WORD_TYPES.map(type=>[type,[{fields:{Form:'rōsa',Grammatik:'f.', 'Bedeutung I.':'Blüte','Bedeutung II.':'Rose',Textbelege:'rosam'}}]]));
+ for(const type of WORD_TYPES){
+  const simple=['Adverbien','Konjunktionen','Subjunktionen','Unbekannt'].includes(type),question=simple?'f.':'rōsa\n---\nrosam';
+  const xml=strFromU8(unzipSync(toBrainyoo({[type]:g[type]},'A'))['by_content.xml']);assert.ok(xml.includes('<vocabulary>'+question+'</vocabulary>'),type+' Brainyoo');
+  const db=new SQL.Database(unzipSync(await toAnki({[type]:g[type]},'  Übung :: A  '))['collection.anki2']);
+  const [fields,tags]=db.exec('select flds,tags from notes')[0].values[0];const [front,back]=fields.split('\x1f');assert.equal(front,question.replaceAll('\n','<br>')+'<br><strong>Wortart: '+type+'</strong>',type);assert.equal(tags,' Latein ');
+  assert.equal(back,'Form: rōsa<br>Grammatik: f.<br>Bedeutung I.: Blüte<br>Bedeutung II.: Rose');assert.equal(Object.values(JSON.parse(db.exec('select decks from col')[0].values[0][0]))[0].name,'  Übung :: A  ');db.close();
+ }
+});
+test('PDF tables exactly match Excel headers, sorted cell rows and nonempty sections',async()=>{
+ const {pdfDocument}=await import('../assets/export.mjs');const definition=pdfDocument(groups,'Übung');
+ const workbook=XLSX.read(toXlsx(groups));const tables=definition.content.filter(item=>item.table);
+ assert.equal(tables.length,workbook.SheetNames.length);
+ workbook.SheetNames.forEach((type,i)=>{const excel=XLSX.utils.sheet_to_json(workbook.Sheets[type],{header:1});assert.ok(definition.content.some(item=>item.text===type && item.bold));assert.deepEqual(tables[i].table.body[0].map(cell=>cell.text),excel[0]);assert.deepEqual(tables[i].table.body.slice(1),excel.slice(1,-1));assert.equal(tables[i].table.headerRows,1);assert.equal(tables[i].table.widths.length,excel[0].length);});
+ assert.ok(definition.content.some(item=>item.text===ATTRIBUTION));assert.equal(definition.pageOrientation,'landscape');
 });

@@ -14,8 +14,7 @@
 <div class="options-grid"><div class="settings-stack">
 <label for="parallel">Parallele Navigium-Anfragen (1–128): <output id="parallel-value" for="parallel">64</output></label><input id="parallel" type="range" min="1" max="128" step="1" value="64" aria-describedby="parallel-help"><p id="parallel-help" class="hint">So viele Wörter werden gleichzeitig nachgeschlagen. 64 ist ein guter Start; bei Verbindungsproblemen schiebe den Regler etwas nach links.</p>
 <label for="meanings">Bedeutungen pro Vokabel (1–3): <output id="meanings-value" for="meanings">1</output></label><input id="meanings" type="range" min="1" max="3" step="1" value="1" aria-describedby="meanings-help"><p id="meanings-help" class="hint">Eine Bedeutung hält deine Liste kurz. Wähle zwei oder drei, wenn du mehr Übersetzungen kennenlernen möchtest. Beide Regler lassen sich auch mit den Pfeiltasten bedienen.</p>
-<label class="check"><input id="brainyoo" type="checkbox"> Brainyoo-Export (.by2) ermöglichen</label><label class="check"><input id="anki" type="checkbox"> Anki-Export (.apkg) ermöglichen</label><label for="lesson">Lektions-/Stapelname</label><input id="lesson" maxlength="160" placeholder="Zum Beispiel: Caesar · Gallischer Krieg" aria-describedby="lesson-help" disabled>
-<p id="lesson-help" class="hint">Für Brainyoo oder Anki erforderlich: So heißt deine Lektion bzw. dein Kartenstapel (1–160 Zeichen).</p></div><fieldset class="filters"><legend>Wortarten</legend><label class="check"><input id="all-types" type="checkbox"> Alle auswählen</label><div id="wordtypes"></div></fieldset></div>
+</div><fieldset class="filters"><legend>Wortarten</legend><label class="check"><input id="all-types" type="checkbox"> Alle auswählen</label><div id="wordtypes"></div></fieldset></div>
 </fieldset><div class="actions"><button id="generate" type="submit" class="primary">Vokabeln generieren</button><button id="cancel" type="button" hidden>Abbrechen</button></div>
 <p class="hint">Nach erfolgreichem Abschluss wählst du die gewünschte Datei zum Herunterladen. Der erste brauchbare Wörterbuchtreffer kann im Textzusammenhang eine andere Bedeutung haben.</p>
 </form>
@@ -24,10 +23,10 @@
 <div><button id="xlsx" type="button" class="primary">Excel (.xlsx) herunterladen</button><p class="hint">Eine Tabelle pro Wortart, zum Bearbeiten in Excel.</p></div>
 <div><button id="ods" type="button">ODS (.ods) herunterladen</button><p class="hint">Eine Tabelle pro Wortart, zum Bearbeiten in LibreOffice.</p></div>
 <div><button id="csv" type="button">CSV (.csv) herunterladen</button><p class="hint">Alle Wörter in einer Tabelle, für andere Lernprogramme.</p></div>
-<div><button id="pdf" type="button">PDF (.pdf) herunterladen</button><p class="hint">Übersichtliche Liste zum Lesen und Ausdrucken.</p></div>
-<div id="brainyoo-download" hidden><button id="by2" type="button" hidden>Brainyoo (.by2) herunterladen</button><p class="hint">Importiere deine Lektion mit Karten nach Wortarten.</p></div>
-<div id="anki-download" hidden><button id="apkg" type="button" hidden>Anki (.apkg) herunterladen</button><p class="hint">Lerne Latein → Deutsch mit deinem eigenen Kartenstapel.</p></div>
-</div></section>
+<div><button id="pdf" type="button">PDF (.pdf) herunterladen</button><p class="hint">Tabellenausdruck im Excel-Layout mit einer Tabelle pro Wortart.</p></div>
+</div><section aria-labelledby="cards-heading"><h3 id="cards-heading">Lernkarten</h3><label for="lesson">Lektions-/Stapelname</label><input id="lesson" minlength="1" maxlength="160" placeholder="Zum Beispiel: Caesar · Gallischer Krieg" aria-describedby="lesson-help"><p id="lesson-help" class="hint" aria-live="polite"></p><div class="download-grid"><div id="brainyoo-download"><button id="by2" type="button">Brainyoo (.by2) herunterladen</button><p class="hint">Importiere deine Lektion mit Karten nach Wortarten.</p></div>
+<div id="anki-download"><button id="apkg" type="button">Anki (.apkg) herunterladen</button><p class="hint">Fragen nach Wortart, mit dem Anki-Tag Latein.</p></div>
+</div></section></section>
 <p class="storage-note">Der Text wird im Browser zerlegt; einzelne Wortformen gehen über unseren Cloudflare Worker an <a href="https://www.navigium.de" target="_blank" rel="noopener noreferrer">Navigium.de</a>. Nach dem Start prüft Cloudflare Turnstile den Zugriff. App und Worker legen Vokabelinhalte nicht bewusst dauerhaft ab; GitHub Pages, Cloudflare und Navigium können Anfragen verarbeiten und eigene Infrastrukturprotokolle führen. Exporte entstehen im Browser. Lade sie vor dem Schließen herunter.</p>
-</main><footer><span>Vokabulator</span><a href="https://github.com/Zwiebelrostbraten/Vokabulator" target="_blank" rel="noopener noreferrer">Das Python-Original · MIT-Lizenz</a></footer>
+</main><footer><span>Vokabulator</span><a href="https://github.com/Zwiebelrostbraten/Vokabulator-Webapp" target="_blank" rel="noopener noreferrer">Webapp auf GitHub · MIT-Lizenz</a></footer>
 </body></html>

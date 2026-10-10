@@ -13,10 +13,11 @@ export function mountApp(doc,{generate=generateVocabulary,xlsx,by2,anki,ods,csv,
   let controller,completed,queryVersion=0;
   const announce=message=>{$('status').textContent=message;};
   function refresh() {
-    $('lesson').disabled=!($('brainyoo').checked || $('anki').checked);
-    $('lesson').required=!$('lesson').disabled;
-    $('xlsx').disabled=!!controller;
-    for(const id of ['by2','ods','csv','pdf','apkg'])$(id).disabled=!!controller;
+    const valid=!!$('lesson').value.trim() && $('lesson').value.length<=160;
+    $('lesson').setAttribute('aria-invalid',String(!valid));
+    $('lesson-help').textContent=valid?'Der Name gilt für Brainyoo und Anki.':'Bitte einen Lektions-/Stapelnamen mit 1–160 Zeichen eingeben, um Lernkarten herunterzuladen.';
+    for(const id of ['xlsx','ods','csv','pdf'])$(id).disabled=!!controller;
+    for(const id of ['by2','apkg'])$(id).disabled=!!controller || !valid;
   }
   function syncAll() {
     const boxes=[...doc.querySelectorAll('[name="wordtype"]')];
@@ -29,7 +30,7 @@ export function mountApp(doc,{generate=generateVocabulary,xlsx,by2,anki,ods,csv,
     box.addEventListener('change',syncAll);label.append(box,doc.createTextNode(type));$('wordtypes').append(label);
   });
   $('all-types').addEventListener('change',()=>{for(const box of doc.querySelectorAll('[name="wordtype"]'))box.checked=$('all-types').checked;syncAll();});
-  $('brainyoo').addEventListener('change',refresh);$('anki').addEventListener('change',refresh);syncAll();
+  $('lesson').addEventListener('input',refresh);syncAll();
   for(const id of ['parallel','meanings']) {
     const sync=()=>{$(id+'-value').value=$(id).value;};
     $(id).addEventListener('input',sync);
@@ -43,9 +44,7 @@ export function mountApp(doc,{generate=generateVocabulary,xlsx,by2,anki,ods,csv,
     try {
       prepareWords($('text').value);
       options=validateOptions({parallel:Number($('parallel').value),meanings:Number($('meanings').value),types:[...doc.querySelectorAll('[name="wordtype"]:checked')].map(b=>b.value)});
-      if(($('brainyoo').checked || $('anki').checked) && (!$('lesson').value.trim() || $('lesson').value.trim().length>160)) {$('lesson').focus();throw Error('Bitte einen Lektions-/Stapelnamen mit 1–160 Zeichen eingeben.');}
     } catch(error) {announce(error.message);return;}
-    const brainyoo=$('brainyoo').checked,ankiSelected=$('anki').checked,name=$('lesson').value.trim();
     queryVersion++;controller=new AbortController();$('progress').value=0;$('options').disabled=true;$('generate').disabled=true;$('cancel').hidden=false;$('log').textContent='';refresh();
     const started=Date.now();announce('Navigium wird abgefragt …');
     try {
@@ -60,13 +59,12 @@ export function mountApp(doc,{generate=generateVocabulary,xlsx,by2,anki,ods,csv,
       $('progress').value=1;
       const count=Object.values(groups).reduce((n,rows)=>n+rows.length,0);
       if(!count) {announce('Keine Vokabeln gefunden. Prüfe den Text, die Wortarten und das Protokoll.'+(completed?' Die zuletzt erstellten Dateien bleiben verfügbar.':''));return; }
-      const exports=(!xlsx || (brainyoo && !by2))?await import('./export.mjs'):{};
+      const exports=!xlsx?await import('./export.mjs'):{};
       controller.signal.throwIfAborted();
       const excel=(xlsx || exports.toXlsx)(groups);
-      const cards=brainyoo?(by2 || exports.toBrainyoo)(groups,name):undefined;
       controller.signal.throwIfAborted();
-      completed={excel,cards,name,brainyoo,ankiSelected,groups,cache:{}};
-      $('export-menu').hidden=false;$('by2').hidden=!brainyoo;$('brainyoo-download').hidden=!brainyoo;$('apkg').hidden=!ankiSelected;$('anki-download').hidden=!ankiSelected;
+      completed={excel,groups,cache:{}};
+      $('export-menu').hidden=false;
       const total=`${count} ${count===1?'Vokabel':'Vokabeln'}`;
       $('count').textContent=`${total} · ${WORD_TYPES.filter(type=>groups[type]?.length).map(type=>`${type}: ${groups[type].length}`).join(' · ')}`;
       announce(`Fertig: ${total} in ${((Date.now()-started)/1000).toFixed(1)} Sekunden. Deine Dateien stehen zum Download bereit.`);
@@ -78,18 +76,19 @@ export function mountApp(doc,{generate=generateVocabulary,xlsx,by2,anki,ods,csv,
     const url=URL.createObjectURL(new Blob([bytes],{type})),link=doc.createElement('a');link.href=url;link.download=filename;doc.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
   });
   const filename=exportFilename;
-  $('xlsx').addEventListener('click',()=>{if(!controller && completed)save(completed.excel,filename(completed.name,'xlsx'),'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');});
-  $('by2').addEventListener('click',()=>{if(!controller && completed?.brainyoo)save(completed.cards,filename(completed.name,'by2'),'application/zip');});
-  for(const [id,helper,mime,custom] of [['ods','toOds','application/vnd.oasis.opendocument.spreadsheet',ods],['csv','toCsv','text/csv;charset=utf-8',csv],['pdf','toPdf','application/pdf',pdf],['apkg','toAnki','application/zip',anki]]) {
+  $('xlsx').addEventListener('click',()=>{if(!controller && completed)save(completed.excel,filename('','xlsx'),'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');});
+
+  for(const [id,helper,mime,custom] of [['by2','toBrainyoo','application/zip',by2],['ods','toOds','application/vnd.oasis.opendocument.spreadsheet',ods],['csv','toCsv','text/csv;charset=utf-8',csv],['pdf','toPdf','application/pdf',pdf],['apkg','toAnki','application/zip',anki]]) {
     $(id).addEventListener('click',async()=>{
-      if(controller || !completed || (id==='apkg' && !completed.ankiSelected))return;
-      const batch=completed,version=queryVersion;$(id).disabled=true;
+      const cards=id==='by2' || id==='apkg',name=cards?$('lesson').value:'';
+      if(controller || !completed || (cards && (!name.trim() || name.length>160)))return;
+      const batch=completed,version=queryVersion,cacheKey=id+'\0'+name;$(id).disabled=true;
       try {
-        batch.cache[id] ??= Promise.resolve().then(async()=>{const exporter=custom || (await import('./export.mjs'))[helper];return exporter(batch.groups,batch.name || 'Vokabelliste');});
-        const bytes=await batch.cache[id];
-        if(!controller && completed===batch && version===queryVersion)save(bytes,filename(batch.name,id==='apkg'?'apkg':id),mime);
-      } catch(error) {delete batch.cache[id];if(version===queryVersion)announce('Download fehlgeschlagen: '+error.message);}
-      finally {$(id).disabled=!!controller;}
+        batch.cache[cacheKey] ??= Promise.resolve().then(async()=>{const exporter=custom || (await import('./export.mjs'))[helper];return exporter(batch.groups,cards?name:'Vokabelliste');});
+        const bytes=await batch.cache[cacheKey];
+        if(!controller && completed===batch && version===queryVersion)save(bytes,filename(name,id),mime);
+      } catch(error) {delete batch.cache[cacheKey];if(version===queryVersion)announce('Download fehlgeschlagen: '+error.message);}
+      finally {refresh();}
     });
   }
   refresh();
