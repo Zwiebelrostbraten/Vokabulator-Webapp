@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, mkdtemp, rm } from 'node:fs/promises';
+import { readFile, mkdtemp, rm, mkdir } from 'node:fs/promises';
 import { chromium } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { build, preview } from 'vite';
@@ -47,6 +47,16 @@ test('real browser: project subpath, accessible responsive sliders and explicit 
       await route.fulfill({json:{query:q,found:true,lemma:'rosa, -ae f.',wordType:'SUBST',classLabel:'Substantiv',deponens:false,meanings:['Rose','Blume','Blüte'],flexion:[{form:'SubstantivForm(NOM,SG)',wort:['rosa']},{form:'SubstantivForm(GEN,SG)',wort:['rosae']}]},headers:{'Access-Control-Allow-Origin':'*'}});
     });
     await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/vokabulator/`);
+    const reviewDir='/opt/data/profiles/mrs_patmore/cache/vokabulator-ui-review';
+    await mkdir(reviewDir,{recursive:true});
+    assert.equal(await page.locator('#status').getAttribute('data-state'),'ready');
+    assert.equal(await page.locator('#parallel').isVisible(),false);
+    for(const width of [1200,390]) {
+      await page.setViewportSize({width,height:900});
+      await page.screenshot({path:join(reviewDir,`initial-${width}.png`),fullPage:true});
+    }
+    await page.setViewportSize({width:1200,height:900});
+    await page.getByText('Erweiterte Einstellungen',{exact:true}).click();
     const columns=await page.locator('.options-grid').evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(' ').length);
     assert.equal(columns,2,'desktop options have two columns');
     await page.getByLabel('Lateinischer Text',{exact:true}).fill('rosa rosam rosa');
@@ -79,6 +89,12 @@ test('real browser: project subpath, accessible responsive sliders and explicit 
     assert.deepEqual((await new AxeBuilder({page}).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze()).violations,[]);
     await page.getByLabel('Lektions-/Stapelname').fill('Meine Lektion & Text');
     assert.equal(await page.locator('#by2').isEnabled(),true);
+    assert.equal(await page.locator('#status').getAttribute('data-state'),'success');
+    for(const width of [1200,390]) {
+      await page.setViewportSize({width,height:900});
+      await page.screenshot({path:join(reviewDir,`success-${width}.png`),fullPage:true});
+    }
+    await page.setViewportSize({width:1200,height:900});
     await page.getByRole('button',{name:'Excel (.xlsx) herunterladen',exact:true}).click();
     await page.getByRole('button',{name:'Brainyoo (.by2) herunterladen',exact:true}).click();
     await bothDownloads;
@@ -147,7 +163,28 @@ test('real browser: project subpath, accessible responsive sliders and explicit 
     assert.equal(await page.getByLabel('Lektions-/Stapelname').inputValue(),'Erhalten');assert.equal(await page.locator('#apkg').isEnabled(),true);
     const [retained]=await Promise.all([page.waitForEvent('download'),page.locator('#xlsx').click()]);
     assert.deepEqual(await readFile(await retained.path()),await readFile(await onlyExcel.path()));
-    for(const width of [1200,390,320]) {
+    assert.equal(await page.locator('#status').getAttribute('data-state'),'cancelled');
+    await page.route('https://worker.test/session',route=>route.fulfill({status:503,json:{error:'Sicherheitsdienst nicht erreichbar.'},headers:{'Access-Control-Allow-Origin':'*'}}));
+    await page.locator('#generate').click();
+    await page.locator('#status[data-state="error"]').waitFor();
+    assert.match(await page.locator('#status').textContent(),/zuletzt erstellten Dateien bleiben/);
+    assert.equal(await page.locator('#xlsx').isEnabled(),true);
+    assert.equal(await page.locator('#lesson').inputValue(),'Erhalten');
+    await page.unroute('https://worker.test/session');
+    await page.route('https://worker.test/session',route=>route.fulfill({json:{ticket:'browser-ticket'},headers:{'Access-Control-Allow-Origin':'*'}}));
+    await page.unroute('https://*/lookup?*');
+    await page.route('https://*/lookup?*',route=>route.fulfill({json:{found:false},headers:{'Access-Control-Allow-Origin':'*'}}));
+    await page.locator('#generate').click();
+    await page.locator('#status').filter({hasText:'Keine Vokabeln gefunden.'}).waitFor();
+    assert.equal(await page.locator('#status').getAttribute('data-state'),'error');
+    assert.equal(await page.locator('#lesson').inputValue(),'Erhalten');
+    assert.equal(await page.locator('#xlsx').isEnabled(),true);
+    const [afterEmpty]=await Promise.all([page.waitForEvent('download'),page.locator('#xlsx').click()]);
+    assert.deepEqual(await readFile(await afterEmpty.path()),await readFile(await onlyExcel.path()));
+    await page.getByText('Erweiterte Einstellungen',{exact:true}).click();
+    assert.equal(await page.locator('#parallel').isVisible(),false);
+    assert.equal(await page.locator('#meanings').isVisible(),true);
+    for(const width of [1200,768,390,320]) {
       await page.setViewportSize({width,height:900});
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,`no horizontal overflow at ${width}: `+JSON.stringify(await page.evaluate(()=>[...document.querySelectorAll('body *')].filter(el=>el.getBoundingClientRect().right>innerWidth).map(el=>({tag:el.tagName,id:el.id,class:el.className,right:el.getBoundingClientRect().right})))));
       if(width<=390)assert.equal(await page.locator('.options-grid').evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(' ').length),1);

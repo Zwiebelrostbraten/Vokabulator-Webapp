@@ -11,10 +11,18 @@ export function exportFilename(name,extension) {
 export function mountApp(doc,{generate=generateVocabulary,xlsx,by2,anki,ods,csv,pdf,download,authorize=authorizeBatch,siteKey=TURNSTILE_SITE_KEY}={}) {
   const $=id=>doc.getElementById(id);
   let controller,completed,queryVersion=0;
-  const announce=message=>{$('status').textContent=message;};
+  const announce=(message,state='running')=>{
+    $('status').textContent=message;
+    $('status').dataset.state=state;
+  };
+  const updateCharacterCount=()=>{
+    $('text-count').textContent=`${$('text').value.length.toLocaleString('de-DE')} / 100.000 Zeichen`;
+  };
+  $('text').addEventListener('input',updateCharacterCount);
+  updateCharacterCount();
   function refresh() {
     const valid=!!$('lesson').value.trim() && $('lesson').value.length<=160;
-    $('lesson').setAttribute('aria-invalid',String(!valid));
+    $('lesson').setAttribute('aria-invalid',String($('lesson').value.length>160));
     $('lesson-help').textContent=valid?'Der Name gilt für Brainyoo und Anki.':'Bitte einen Lektions-/Stapelnamen mit 1–160 Zeichen eingeben, um Lernkarten herunterzuladen.';
     for(const id of ['xlsx','ods','csv','pdf'])$(id).disabled=!!controller;
     for(const id of ['by2','apkg'])$(id).disabled=!!controller || !valid;
@@ -44,7 +52,7 @@ export function mountApp(doc,{generate=generateVocabulary,xlsx,by2,anki,ods,csv,
     try {
       prepareWords($('text').value);
       options=validateOptions({parallel:Number($('parallel').value),meanings:Number($('meanings').value),types:[...doc.querySelectorAll('[name="wordtype"]:checked')].map(b=>b.value)});
-    } catch(error) {announce(error.message);return;}
+    } catch(error) {announce(error.message,'error');return;}
     queryVersion++;controller=new AbortController();$('progress').value=0;$('options').disabled=true;$('generate').disabled=true;$('cancel').hidden=false;$('log').textContent='';refresh();
     const started=Date.now();announce('Navigium wird abgefragt …');
     try {
@@ -58,7 +66,7 @@ export function mountApp(doc,{generate=generateVocabulary,xlsx,by2,anki,ods,csv,
       controller.signal.throwIfAborted();
       $('progress').value=1;
       const count=Object.values(groups).reduce((n,rows)=>n+rows.length,0);
-      if(!count) {announce('Keine Vokabeln gefunden. Prüfe den Text, die Wortarten und das Protokoll.'+(completed?' Die zuletzt erstellten Dateien bleiben verfügbar.':''));return; }
+      if(!count) {announce('Keine Vokabeln gefunden. Prüfe den Text, die Wortarten und das Protokoll.'+(completed?' Die zuletzt erstellten Dateien bleiben verfügbar.':''),'error');return; }
       const exports=!xlsx?await import('./export.mjs'):{};
       controller.signal.throwIfAborted();
       const excel=(xlsx || exports.toXlsx)(groups);
@@ -67,8 +75,8 @@ export function mountApp(doc,{generate=generateVocabulary,xlsx,by2,anki,ods,csv,
       $('export-menu').hidden=false;
       const total=`${count} ${count===1?'Vokabel':'Vokabeln'}`;
       $('count').textContent=`${total} · ${WORD_TYPES.filter(type=>groups[type]?.length).map(type=>`${type}: ${groups[type].length}`).join(' · ')}`;
-      announce(`Fertig: ${total} in ${((Date.now()-started)/1000).toFixed(1)} Sekunden. Deine Dateien stehen zum Download bereit.`);
-    } catch(error) {announce((error.name==='AbortError'?'Abgebrochen.':error.message)+(completed?' Die zuletzt erstellten Dateien bleiben verfügbar.':''));}
+      announce(`Fertig: ${total} in ${((Date.now()-started)/1000).toFixed(1)} Sekunden. Deine Dateien stehen zum Download bereit.`,'success');
+    } catch(error) {announce((error.name==='AbortError'?'Abgebrochen.':error.message)+(completed?' Die zuletzt erstellten Dateien bleiben verfügbar.':''),error.name==='AbortError'?'cancelled':'error');}
     finally {controller=undefined;$('options').disabled=false;$('generate').disabled=false;$('cancel').hidden=true;refresh();}
   });
   $('cancel').addEventListener('click',()=>controller?.abort());
@@ -87,7 +95,7 @@ export function mountApp(doc,{generate=generateVocabulary,xlsx,by2,anki,ods,csv,
         batch.cache[cacheKey] ??= Promise.resolve().then(async()=>{const exporter=custom || (await import('./export.mjs'))[helper];return exporter(batch.groups,cards?name:'Vokabelliste');});
         const bytes=await batch.cache[cacheKey];
         if(!controller && completed===batch && version===queryVersion)save(bytes,filename(name,id),mime);
-      } catch(error) {delete batch.cache[cacheKey];if(version===queryVersion)announce('Download fehlgeschlagen: '+error.message);}
+      } catch(error) {delete batch.cache[cacheKey];if(version===queryVersion)announce('Download fehlgeschlagen: '+error.message,'error');}
       finally {refresh();}
     });
   }

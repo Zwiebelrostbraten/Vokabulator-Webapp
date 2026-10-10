@@ -39,7 +39,7 @@ test('output-only Lernkarten: six formats, independent validation and preserved 
  assert.equal(doc.querySelector('#generator #lesson, #brainyoo, #anki'),null);assert.ok(doc.querySelector('#export-menu #lesson'));assert.equal($('export-menu').hidden,true);
  $('text').value='rosa';$('generate').click();await tick();assert.equal($('export-menu').hidden,false);
  for(const id of ['xlsx','ods','csv','pdf','by2','apkg'])assert.equal($(id).hidden,false);
- assert.equal($('by2').disabled,true);assert.equal($('apkg').disabled,true);for(const id of ['xlsx','ods','csv','pdf'])assert.equal($(id).disabled,false);assert.match($('lesson-help').textContent,/1–160/);assert.equal($('lesson').getAttribute('aria-invalid'),'true');
+ assert.equal($('by2').disabled,true);assert.equal($('apkg').disabled,true);for(const id of ['xlsx','ods','csv','pdf'])assert.equal($(id).disabled,false);assert.match($('lesson-help').textContent,/1–160/);assert.equal($('lesson').getAttribute('aria-invalid'),'false');
  const input=()=> $('lesson').dispatchEvent(new doc.defaultView.Event('input'));
  $('lesson').value='x'.repeat(161);input();assert.equal($('by2').disabled,true);$('generate').click();await tick();assert.match($('status').textContent,/Fertig:/);assert.equal($('by2').disabled,true);
  $('lesson').value='  Übung :: A  ';input();assert.equal($('by2').disabled,false);assert.equal($('apkg').disabled,false);assert.equal($('lesson').getAttribute('aria-invalid'),'false');
@@ -66,4 +66,18 @@ test('card downloads keep proprietary extensions and explicit format MIME types'
  $('lesson').value='Meine Lektion & Text';$('lesson').dispatchEvent(new doc.defaultView.Event('input'));
  for(const id of ['by2','apkg']){$(id).click();await tick();await tick();}
  assert.deepEqual(downloads,[[payload,'Meine-Lektion-Text.by2','application/x-brainyoo'],[payload,'Meine-Lektion-Text.apkg','application/x-anki']]);
+});
+
+test('character count initializes from text and follows input without storage',()=>{
+ const dom=new JSDOM(html);const doc=dom.window.document;doc.getElementById('text').value='rosa';mountApp(doc);
+ assert.equal(doc.getElementById('text-count').textContent,'4 / 100.000 Zeichen');
+ doc.getElementById('text').value='rosa rosam';doc.getElementById('text').dispatchEvent(new dom.window.Event('input'));
+ assert.equal(doc.getElementById('text-count').textContent,'10 / 100.000 Zeichen');
+});
+test('status states are explicit and blank card name is a neutral required hint',async()=>{
+ const {$}=setup({generate:async()=>fixture(),xlsx:()=>new Uint8Array()});
+ assert.equal($('status').dataset.state,'ready');assert.equal($('lesson').getAttribute('aria-invalid'),'false');
+ $('generate').click();assert.equal($('status').dataset.state,'error');
+ $('text').value='rosa';$('generate').click();assert.equal($('status').dataset.state,'running');await tick();
+ assert.equal($('status').dataset.state,'success');assert.equal($('lesson').getAttribute('aria-invalid'),'false');
 });
