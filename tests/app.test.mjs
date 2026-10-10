@@ -40,7 +40,7 @@ test('successful generation offers explicit Excel and Brainyoo downloads with fi
   assert.equal(downloads.length,0);assert.equal($('export-menu').hidden,false);
   $('xlsx').click();$('by2').click();
   assert.deepEqual(downloads,[
-    [JSON.stringify(fixture()),'Vokabelliste.xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+    [JSON.stringify(fixture()),'Meine-Lektion.xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
     ['Meine Lektion','Meine-Lektion.by2','application/zip']
   ]);
   assert.match($('status').textContent,/1 Vokabel.*Download/);
@@ -95,4 +95,20 @@ test('empty and failed runs retain completed files, counts and Brainyoo settings
   result=Error('offline');$('generate').click();await tick();assert.equal($('count').textContent,count);assert.match($('status').textContent,/offline.*zuletzt erstellten Dateien bleiben verfügbar/);
   $('by2').click();assert.equal(downloads[0][0],'Alte Lektion');assert.equal(downloads[0][1],'Alte-Lektion.by2');
   result={Nomen:[{lemma:'neu',fields:{}}]};$('generate').click();await tick();assert.equal($('by2').hidden,true);$('by2').click();assert.equal(downloads.length,1);$('xlsx').click();assert.equal(downloads[1][0],JSON.stringify(result));
+});
+test('Anki enables required shared name; completed menu snapshots optional choices and safe filenames',async()=>{
+ let result=fixture();const downloads=[];const {$}=setup({generate:async()=>{if(result instanceof Error)throw result;return result;},xlsx:()=>new Uint8Array([1]),by2:()=>new Uint8Array([2]),anki:()=>new Uint8Array([3]),ods:()=>new Uint8Array([4]),csv:()=>new Uint8Array([5]),pdf:()=>new Uint8Array([6]),download:(...a)=>downloads.push(a)});
+ $('anki').click();assert.equal($('lesson').disabled,false);assert.equal($('lesson').required,true);$('text').value='rosa';$('generate').click();await tick();assert.match($('status').textContent,/1–160/);
+ $('lesson').value='../Übung A';$('generate').click();await tick();assert.equal(downloads.length,0);assert.equal($('apkg').hidden,false);assert.equal($('by2').hidden,true);
+ for(const id of ['xlsx','ods','csv','pdf','apkg'])$(id).click();await tick();assert.deepEqual(downloads.map(x=>x[1]),['-Übung-A.xlsx','-Übung-A.ods','-Übung-A.csv','-Übung-A.pdf','-Übung-A.apkg']);assert.deepEqual(downloads.map(x=>x[2]),['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','application/vnd.oasis.opendocument.spreadsheet','text/csv;charset=utf-8','application/pdf','application/zip']);
+ $('anki').click();assert.equal($('lesson').disabled,true);assert.equal($('lesson').required,false);$('lesson').value='neu';result=Error('offline');$('generate').click();await tick();assert.equal($('apkg').hidden,false);$('apkg').click();await tick();assert.equal(downloads.at(-1)[1],'-Übung-A.apkg');
+});
+test('download filenames avoid reserved device names and filesystem byte limits',async()=>{
+ const {exportFilename}=await import('../assets/app.mjs');
+ assert.equal(exportFilename('CON','pdf'),'Vokabelliste-CON.pdf');assert.equal(exportFilename('A / B','apkg'),'A-B.apkg');assert.equal(exportFilename('','ods'),'Vokabelliste.ods');
+ assert.ok(new TextEncoder().encode(exportFilename('學'.repeat(160),'xlsx')).length<=240);
+});
+test('starting a new query cancels a pending download even when that query is cancelled',async()=>{
+ let run=0,finish;const downloads=[];const {$}=setup({xlsx:()=>new Uint8Array([1]),pdf:()=>new Promise(resolve=>{finish=resolve;}),download:(...a)=>downloads.push(a),generate:async(_t,_b,{signal})=>{if(!run++)return fixture();return new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));}});
+ $('text').value='rosa';$('generate').click();await tick();$('pdf').click();await tick();$('generate').click();await tick();$('cancel').click();await tick();finish(new Uint8Array([2]));await tick();assert.equal(downloads.length,0);assert.equal($('export-menu').hidden,false);$('pdf').click();await tick();assert.equal(downloads.length,1);
 });

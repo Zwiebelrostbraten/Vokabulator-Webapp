@@ -53,7 +53,8 @@ test('real browser: project subpath, accessible responsive sliders and explicit 
     assert.equal(await page.locator('#results, [data-field], [data-delete]').count(),0);
     assert.equal(await page.locator('#export-menu').isVisible(),false);
     await page.getByLabel('Brainyoo-Export (.by2) ermöglichen',{exact:true}).check();
-    await page.getByLabel('Lektionsname für Brainyoo').fill('Meine Lektion & Text');
+    await page.getByLabel('Lektions-/Stapelname').fill('Meine Lektion & Text');
+    await page.locator('#anki').check();
     const downloads=[];
     const bothDownloads=new Promise(resolve=>page.on('download',download=>{downloads.push(download);if(downloads.length===2)resolve();}));
     await page.getByRole('button',{name:'Vokabeln generieren',exact:true}).click();
@@ -67,7 +68,7 @@ test('real browser: project subpath, accessible responsive sliders and explicit 
     assert.equal(sessions,1);assert.equal(challenges,1);
     assert.deepEqual(queries.sort(),['rosa','rosam']);
     const [excel,by2]=downloads;
-    assert.equal(excel.suggestedFilename(),'Vokabelliste.xlsx');
+    assert.equal(excel.suggestedFilename(),'Meine-Lektion-Text.xlsx');
     assert.equal(by2.suggestedFilename(),'Meine-Lektion-Text.by2');
     const workbook=XLSX.read(await readFile(await excel.path()));
     assert.equal(workbook.Sheets.Nomen.F2.v,'Blume');
@@ -79,14 +80,32 @@ test('real browser: project subpath, accessible responsive sliders and explicit 
       return {errors:document.querySelectorAll('parsererror').length,cards:document.querySelectorAll('vocabularycard').length,title:document.querySelector('lesson').getAttribute('title'),answer:document.querySelector('vocabularyAnswer').textContent};
     },xml);
     assert.equal(structure.errors,0);assert.equal(structure.cards,1);assert.equal(structure.title,'Meine Lektion & Text');assert.match(structure.answer,/Rose\nBlume\nBlüte/);
+    for(const [id,extension] of [['ods','ods'],['csv','csv'],['pdf','pdf'],['apkg','apkg']]) {
+      const [file]=await Promise.all([page.waitForEvent('download'),page.locator('#'+id).click()]);
+      assert.equal(file.suggestedFilename(),'Meine-Lektion-Text.'+extension);
+      const bytes=new Uint8Array(await readFile(await file.path()));
+      if(id==='pdf') {
+        const {getDocument}=await import('pdfjs-dist/legacy/build/pdf.mjs');const pdf=await getDocument({data:bytes}).promise;
+        assert.equal(pdf.numPages,1);const text=(await (await pdf.getPage(1)).getTextContent()).items.map(x=>x.str).join(' ');
+        for(const expected of ['Meine Lektion & Text','Rose','Blume','Blüte','rosa; rosam'])assert.ok(text.includes(expected),expected);
+      }
+      if(id==='ods')assert.equal(XLSX.read(bytes).Sheets.Nomen.G2.v,'Blüte');
+      if(id==='csv')assert.deepEqual([...bytes.slice(0,3)],[239,187,191]);
+      if(id==='apkg') {
+        const {default:init}=await import('sql.js');const SQL=await init();const db=new SQL.Database(unzipSync(bytes)['collection.anki2']);
+        assert.equal(db.exec('pragma integrity_check')[0].values[0][0],'ok');assert.equal(db.exec('select count(*) from cards')[0].values[0][0],1);db.close();
+      }
+    }
+    downloads.splice(2);
+    await page.locator('#anki').uncheck();
     await page.getByLabel('Brainyoo-Export (.by2) ermöglichen',{exact:true}).uncheck();
-    assert.equal(await page.getByLabel('Lektionsname für Brainyoo').isDisabled(),true);
+    assert.equal(await page.getByLabel('Lektions-/Stapelname').isDisabled(),true);
     await page.getByRole('slider',{name:/Bedeutungen pro Vokabel/}).press('Home');
     await page.getByRole('button',{name:'Vokabeln generieren',exact:true}).click();
     await page.locator('#status').filter({hasText:'Fertig:'}).waitFor();
     assert.equal(downloads.length,2);assert.equal(await page.locator('#by2').isVisible(),false);
     const [onlyExcel]=await Promise.all([page.waitForEvent('download'),page.locator('#xlsx').click()]);
-    assert.equal(onlyExcel.suggestedFilename(),'Vokabelliste.xlsx');
+    assert.equal(onlyExcel.suggestedFilename(),'Meine-Lektion-Text.xlsx');
     const shortWorkbook=XLSX.read(await readFile(await onlyExcel.path()));
     assert.equal(shortWorkbook.Sheets.Nomen.E2.v,'Rose');
     assert.equal(shortWorkbook.Sheets.Nomen.F1.v,'Textbelege');

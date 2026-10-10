@@ -9,7 +9,11 @@ test('production build has relative asset links and no worker, tests, source map
   assert.match(html,/href="\.\/assets\/[^" ]+\.css"/);
   const {readdir}=await import('node:fs/promises');
   assert.deepEqual((await readdir('dist')).sort(),['assets','index.html']);
-  assert.ok((await readdir('dist/assets')).every(f=>/\.(js|css)$/.test(f)));
+  assert.ok((await readdir('dist/assets')).every(f=>/\.(js|css|wasm)$/.test(f)));
+  const assets=await readdir('dist/assets');
+  const wasm=assets.find(f=>f.endsWith('.wasm'));assert.ok(wasm,'bundled SQLite runtime');
+  assert.deepEqual([...new Uint8Array(await readFile('dist/assets/'+wasm)).slice(0,4)],[0,97,115,109]);
+  assert.ok(assets.some(f=>f.startsWith('vfs_fonts-')),'bundled Unicode fonts');
   const workflow=await readFile('.github/workflows/pages.yml','utf8');
   assert.match(workflow,/npm ci/);assert.match(workflow,/npm run build/);assert.match(workflow,/path: dist/);
   assert.match(workflow,/npm run lint/);assert.match(workflow,/npm run check/);
