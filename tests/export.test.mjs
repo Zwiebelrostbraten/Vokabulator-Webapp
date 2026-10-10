@@ -97,3 +97,74 @@ test('PDF tables exactly match Excel headers, sorted cell rows and nonempty sect
  workbook.SheetNames.forEach((type,i)=>{const excel=XLSX.utils.sheet_to_json(workbook.Sheets[type],{header:1});assert.ok(definition.content.some(item=>item.text===type && item.bold));assert.deepEqual(tables[i].table.body[0].map(cell=>cell.text),excel[0]);assert.deepEqual(tables[i].table.body.slice(1),excel.slice(1,-1));assert.equal(tables[i].table.headerRows,1);assert.equal(tables[i].table.widths.length,excel[0].length);});
  assert.ok(definition.content.some(item=>item.text===ATTRIBUTION));assert.equal(definition.pageOrientation,'landscape');
 });
+test('PDF fixed widths use longest visible line in graphemes, readable minimum and finite cap; meanings share remainder',async()=>{
+ const {pdfDocument}=await import('../assets/export.mjs');
+ const fields={A:'x',Form:'abcdefghijklmnopqrst',Unicode:'e\u0301'.repeat(20)+'\n'+ '𐐀'.repeat(10),Textbelege:'x'.repeat(10000),'Bedeutung I.':'x'.repeat(10000),'Bedeutung II.':'kurz'};
+ const doc=pdfDocument({Nomen:[{fields},{fields:{...fields,Form:'x'.repeat(22)}}]});
+ const item=doc.content.find(x=>x.table);assert.deepEqual(item.table.widths,[42,118,108,120,'*','*']);
+ const remainder=841.89-80-(6*10+7)-item.table.widths.filter(x=>typeof x==='number').reduce((a,b)=>a+b,0);
+ assert.ok(remainder/2>0);assert.equal(item.noWrap,undefined);assert.equal(item.table.headerRows,1);
+ const {toPdf}=await import('../assets/export.mjs'),{getDocument}=await import('pdfjs-dist/legacy/build/pdf.mjs');
+ const pdf=await getDocument({data:await toPdf({Nomen:[{fields:{...fields,Textbelege:'x'.repeat(30),'Bedeutung I.':'Rose','Bedeutung II.':'Blüte'}},{fields:{...fields,Form:'x'.repeat(22),Textbelege:'x'.repeat(30),'Bedeutung I.':'Rose','Bedeutung II.':'Blüte'}}]})}).promise;
+ const items=(await (await pdf.getPage(1)).getTextContent()).items;
+ const first=items.find(x=>x.str==='Bedeutung I.'),second=items.find(x=>x.str==='Bedeutung II.');
+ assert.ok(Math.abs(second.transform[4]-first.transform[4]-(remainder/2+11))<0.01,'each star column gets half the remaining content width plus padding/border');
+});
+test('PDF without meanings scales preferred widths within bounds to fit landscape printable area',async()=>{
+ const {pdfDocument,toPdf}=await import('../assets/export.mjs');
+ const fields=Object.fromEntries(Array.from({length:9},(_,i)=>['Spalte '+i,i===0?'kurz':'Wort '.repeat(100)]));
+ const doc=pdfDocument({Nomen:[{fields}]}),widths=doc.content.find(x=>x.table).table.widths;
+ assert.ok(widths.every(x=>typeof x==='number' && x>=42 && x<=120));
+ assert.ok(widths[0]<widths[1]);assert.ok(Math.abs(widths[1]-widths[8])<0.001);
+ assert.ok(widths.reduce((a,b)=>a+b,0)+9*10+10<=841.89-80+0.001);
+ const {getDocument}=await import('pdfjs-dist/legacy/build/pdf.mjs');const pdf=await getDocument({data:await toPdf({Nomen:[{fields}]})}).promise;
+ for(let n=1;n<=pdf.numPages;n++)for(const item of (await (await pdf.getPage(n)).getTextContent()).items.filter(x=>x.str.trim()))assert.ok(item.transform[4]>=40 && item.transform[4]+item.width<=841.89-40,'printable width');
+});
+
+test('PDF overflowing Verben reserves usable equal star widths and proportional readable fixed widths',async()=>{
+ const {pdfDocument}=await import('../assets/export.mjs');
+ const fixed=['Infinitiv','1. Ps. Sg. Präs. Ind. Akt.','1. Ps. Sg. Perf. Ind. Akt.','PPP','Konj.','Textbelege'];
+ const fields=Object.fromEntries(fixed.map(h=>[h,'lateinisches Beispiel '.repeat(4)]));
+ Object.assign(fields,{'Bedeutung I.':'erste deutsche Bedeutung','Bedeutung II.':'zweite deutsche Bedeutung','Bedeutung III.':'dritte deutsche Bedeutung'});
+ const groups={Verben:[{fields}]},doc=pdfDocument(groups),table=doc.content.find(x=>x.table);
+ const widths=table.table.widths,overhead=9*10+10,budget=841.89-80;
+ assert.deepEqual(widths.slice(6),['*','*','*']);
+ const total=widths.slice(0,6).reduce((a,b)=>a+b,0),remaining=budget-overhead-total;
+ assert.ok(total+overhead<budget,'fixed widths and all padding/borders leave printable remainder');
+ assert.ok(remaining/3>=60-0.001,'every meaning column reserves at least 60pt usable content width');
+ assert.ok(widths.slice(0,6).every(w=>w>=42 && w<120),'readable fixed floor survives feasible compression');
+ assert.ok(widths.slice(0,6).every(w=>Math.abs(w-widths[0])<0.001),'equal preferred lengths compress equally');
+ const varied={...fields,Infinitiv:'kurz',PPP:'mittellange Form'};
+ const compressed=pdfDocument({Verben:[{fields:varied}]}).content.find(x=>x.table).table.widths;
+ assert.ok(compressed[0]>=42 && compressed[0]<compressed[3] && compressed[3]<compressed[1],'longest-text preference survives compression');
+ assert.ok(Math.abs(compressed[3]/88-compressed[1]/120)<0.001,'unfloored preferred widths scale proportionally');
+
+});
+
+test('PDF pathological column counts produce deterministic bounded tables with readable widths',async()=>{
+ const {pdfDocument}=await import('../assets/export.mjs');
+ for(const meanings of [0,3]) {
+  const fields=Object.fromEntries(Array.from({length:100},(_,i)=>[`F${i}`,'Wort '.repeat(30)]));
+  for(let i=0;i<meanings;i++)fields[`Bedeutung ${i}`]='deutsche Bedeutung';
+  const groups={Verben:[{fields}]},tables=pdfDocument(groups).content.filter(x=>x.table);
+  assert.deepEqual(tables.map(x=>x.table),pdfDocument(groups).content.filter(x=>x.table).map(x=>x.table),'deterministic partition and allocation');
+  assert.deepEqual(tables.flatMap(x=>x.table.body[0].map(c=>c.text)),Object.keys(fields),'every column retained in order');
+  for(const item of tables) {
+   const widths=item.table.widths,n=widths.length,stars=widths.filter(w=>w==='*').length;
+   const fixed=widths.filter(w=>typeof w==='number');
+   assert.ok(fixed.every(w=>w>=42 && w<=120),'readable floor remains feasible');
+   assert.ok(fixed.reduce((a,b)=>a+b,0)+stars*60+n*10+n+1<=841.89-80+0.001,'including padding and borders, every table fits');
+  }
+ }
+});
+
+test('PDF overflowing Verben actual PDF text stays within horizontal printable margins',async()=>{
+ const {toPdf}=await import('../assets/export.mjs'),{getDocument}=await import('pdfjs-dist/legacy/build/pdf.mjs');
+ const fields=Object.fromEntries(['Infinitiv','1. Ps. Sg. Präs. Ind. Akt.','1. Ps. Sg. Perf. Ind. Akt.','PPP','Konj.','Textbelege'].map(h=>[h,'lateinisches Beispiel '.repeat(4)]));
+ Object.assign(fields,{'Bedeutung I.':'erste deutsche Bedeutung','Bedeutung II.':'zweite deutsche Bedeutung','Bedeutung III.':'dritte deutsche Bedeutung'});
+ const pdf=await getDocument({data:await toPdf({Verben:[{fields}]})}).promise;
+ for(let n=1;n<=pdf.numPages;n++) {
+  const page=await pdf.getPage(n);
+  for(const item of (await page.getTextContent()).items.filter(x=>x.str.trim()))assert.ok(item.transform[4]>=40-0.001 && item.transform[4]+item.width<=page.view[2]-40+0.001,`printable horizontal margins: ${item.str}`);
+ }
+});

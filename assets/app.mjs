@@ -78,7 +78,7 @@ export function mountApp(doc,{generate=generateVocabulary,xlsx,by2,anki,ods,csv,
   const filename=exportFilename;
   $('xlsx').addEventListener('click',()=>{if(!controller && completed)save(completed.excel,filename('','xlsx'),'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');});
 
-  for(const [id,helper,mime,custom] of [['by2','toBrainyoo','application/zip',by2],['ods','toOds','application/vnd.oasis.opendocument.spreadsheet',ods],['csv','toCsv','text/csv;charset=utf-8',csv],['pdf','toPdf','application/pdf',pdf],['apkg','toAnki','application/zip',anki]]) {
+  for(const [id,helper,mime,custom] of [['by2','toBrainyoo','application/x-brainyoo',by2],['ods','toOds','application/vnd.oasis.opendocument.spreadsheet',ods],['csv','toCsv','text/csv;charset=utf-8',csv],['pdf','toPdf','application/pdf',pdf],['apkg','toAnki','application/x-anki',anki]]) {
     $(id).addEventListener('click',async()=>{
       const cards=id==='by2' || id==='apkg',name=cards?$('lesson').value:'';
       if(controller || !completed || (cards && (!name.trim() || name.length>160)))return;

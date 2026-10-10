@@ -61,13 +61,56 @@ export function toCsv(groups) {
   const rows=[['Wortart',...headers],...entries.flatMap(([type,rows])=>rows.map(row=>[type,...headers.map(h=>row.fields[h] ?? '')]))];
   return strToU8('\uFEFF'+rows.map(row=>row.map(quote).join(';')).join('\r\n')+'\r\n');
 }
+// At 9pt: 42pt readable minimum, 120pt cap, 5pt per grapheme + 8pt reserve.
+// Count displayed grapheme clusters (including combining marks/surrogate pairs),
+// using the longest explicit line rather than counting newline characters.
+const pdfSegmenter=new Intl.Segmenter('de',{granularity:'grapheme'});
+function pdfWidths(headers,body) {
+  const widths=headers.map((header,i)=>{
+    if(header.startsWith('Bedeutung'))return '*';
+    let longest=0;
+    for(const row of [headers,...body])for(const line of String(row[i]).split(/\r\n|[\r\n]/u)) {
+      let length=0;for(const _segment of pdfSegmenter.segment(line))length++;
+      longest=Math.max(longest,length);
+    }
+    return Math.min(120,Math.max(42,longest*5+8));
+  });
+  // Reserve 60pt of usable content for EACH star meaning column, after ALL
+  // 5pt left/right padding and 1pt borders. Normal preferred widths stay intact.
+  const stars=widths.filter(width=>width==='*').length;
+  const budget=841.89-80-headers.length*10-(headers.length+1)-stars*60;
+  const total=scale=>widths.reduce((sum,width)=>sum+(width==='*'?0:Math.max(42,width*scale)),0);
+  if(total(1)>budget) {
+    // Scale preferred lengths together, clamping only at the readable 42pt floor.
+    // pdfDocument partitions columns first so this floor is always feasible.
+    let low=0,high=1;
+    for(let i=0;i<60;i++){const mid=(low+high)/2;if(total(mid)>budget)high=mid;else low=mid;}
+    return widths.map(width=>width==='*'?'*':Math.max(42,width*low));
+  }
+  return widths;
+}
 export function pdfDocument(groups,name='Vokabelliste') {
   const entries=categories(groups);
   const content=[{text:name || 'Vokabelliste',fontSize:20,margin:[0,0,0,16]}];
   for(const [type,rows] of entries) {
     content.push({text:type,fontSize:16,bold:true,margin:[0,12,0,8]});
     const headers=Object.keys(rows[0].fields);
-    content.push({table:{headerRows:1,widths:headers.map(()=>'*'),body:[headers.map(text=>({text,bold:true,fillColor:'#edf3e9'})),...rows.map(row=>headers.map(key=>String(row.fields[key] || '-')))]},layout:{paddingLeft:()=>5,paddingRight:()=>5,paddingTop:()=>5,paddingBottom:()=>5},fontSize:9});
+    const body=rows.map(row=>headers.map(key=>String(row.fields[key] || '-')));
+    // When even minimum content widths plus padding/borders cannot fit, start
+    // another table. This keeps arbitrarily many columns deterministic/readable
+    // instead of producing negative widths or overflowing padding alone.
+    let start=0;
+    while(start<headers.length) {
+      let end=start,cost=1; // outer border; each column adds content + 10pt padding + 1pt border
+      while(end<headers.length) {
+        const next=(headers[end].startsWith('Bedeutung')?60:42)+11;
+        if(cost+next>841.89-80)break;
+        cost+=next;end++;
+      }
+      const sectionHeaders=headers.slice(start,end),sectionBody=body.map(row=>row.slice(start,end));
+      content.push({table:{headerRows:1,widths:pdfWidths(sectionHeaders,sectionBody),body:[sectionHeaders.map(text=>({text,bold:true,fillColor:'#edf3e9'})),...sectionBody]},layout:{paddingLeft:()=>5,paddingRight:()=>5,paddingTop:()=>5,paddingBottom:()=>5},fontSize:9});
+      start=end;
+    }
   }
   content.push({text:ATTRIBUTION,fontSize:8,margin:[0,16,0,0]});
   return {pageSize:'A4',pageOrientation:'landscape',pageMargins:[40,40,40,40],defaultStyle:{font:'Roboto',fontSize:10},content,footer:(page,pages)=>({text:`${page} / ${pages}`,alignment:'center',fontSize:8})};

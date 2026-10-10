@@ -5,11 +5,12 @@ import { chromium } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { build, preview } from 'vite';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, basename } from 'node:path';
 import * as XLSX from '@e965/xlsx';
 import { unzipSync, strFromU8 } from 'fflate';
 test('real browser: project subpath, accessible responsive sliders and explicit actual downloads without persistent storage', {timeout:60000,skip:process.env.RUN_BROWSER_TESTS!=='1'?'Explicit browser test: npm run test:browser':false},async()=>{
   const outDir=await mkdtemp(join(tmpdir(),'vokabulator-browser-'));
+  const savedDir=await mkdtemp(join(tmpdir(),'vokabulator-downloads-'));
   await build({base:'/vokabulator/',build:{outDir,emptyOutDir:true},logLevel:'silent',plugins:[{name:'public-test-config',transform(_code,id){if(id.endsWith('/assets/config.mjs'))return 'export const API_BASE_URL="https://worker.test";export const TURNSTILE_SITE_KEY="public-test-sitekey";';}}]});
   const server=await preview({base:'/vokabulator/',build:{outDir},preview:{host:'127.0.0.1',port:0},logLevel:'silent'});let browser;
   try {
@@ -21,6 +22,20 @@ test('real browser: project subpath, accessible responsive sliders and explicit 
       Storage.prototype.setItem=()=>{throw Error('persistent storage forbidden');};
       indexedDB.open=()=>{throw Error('persistent storage forbidden');};
       navigator.serviceWorker.register=()=>{throw Error('persistent storage forbidden');};
+    });
+    // Chromium's path() is an opaque temporary ID; persist the suggested name.
+    const persist=async(download,expected)=>{
+      assert.equal(download.suggestedFilename(),expected);
+      const target=join(savedDir,download.suggestedFilename());await download.saveAs(target);
+      assert.equal(basename(target),expected);assert.ok(!basename(target).endsWith('.zip'));
+      assert.deepEqual(await readFile(target),await readFile(await download.path()));
+      return target;
+    };
+    const cardBlobs=[];
+    await page.addInitScript(()=>{
+      const original=URL.createObjectURL;
+      window.cardBlobTypes=[];
+      URL.createObjectURL=blob=>{window.cardBlobTypes.push(blob.type);return original.call(URL,blob);};
     });
     let challenges=0,sessions=0;
     await page.route('https://challenges.cloudflare.com/turnstile/v0/api.js?*',route=>route.fulfill({contentType:'application/javascript',body:'window.turnstile={render(el,options){setTimeout(()=>options.callback("browser-token"),0);return 1;},remove(){}};'}));
@@ -78,7 +93,10 @@ test('real browser: project subpath, accessible responsive sliders and explicit 
     assert.equal(workbook.Sheets.Nomen.F2.v,'Blume');
     assert.equal(workbook.Sheets.Nomen.G2.v,'Blüte');
     assert.equal(workbook.Sheets.Nomen.H2.v,'rosa; rosam');
-    const xml=strFromU8(unzipSync(await readFile(await by2.path()))['by_content.xml']);
+    const by2Saved=await persist(by2,'Meine-Lektion-Text.by2');
+    cardBlobs.push((await page.evaluate(()=>window.cardBlobTypes)).at(-1));
+    assert.equal(cardBlobs[0],'application/x-brainyoo');
+    const xml=strFromU8(unzipSync(await readFile(by2Saved))['by_content.xml']);
     const structure=await page.evaluate(xml=>{
       const document=new DOMParser().parseFromString(xml,'text/xml');
       return {errors:document.querySelectorAll('parsererror').length,cards:document.querySelectorAll('vocabularycard').length,title:document.querySelector('lesson').getAttribute('title'),answer:document.querySelector('vocabularyAnswer').textContent};
@@ -96,6 +114,8 @@ test('real browser: project subpath, accessible responsive sliders and explicit 
       if(id==='ods')assert.equal(XLSX.read(bytes).Sheets.Nomen.G2.v,'Blüte');
       if(id==='csv')assert.deepEqual([...bytes.slice(0,3)],[239,187,191]);
       if(id==='apkg') {
+        const saved=await persist(file,'Meine-Lektion-Text.apkg');assert.equal(basename(saved),'Meine-Lektion-Text.apkg');
+        assert.equal((await page.evaluate(()=>window.cardBlobTypes)).at(-1),'application/x-anki');
         const {default:init}=await import('sql.js');const SQL=await init();const db=new SQL.Database(unzipSync(bytes)['collection.anki2']);
         assert.equal(db.exec('pragma integrity_check')[0].values[0][0],'ok');assert.equal(db.exec('select count(*) from cards')[0].values[0][0],1);assert.equal(db.exec('select tags from notes')[0].values[0][0],' Latein ');assert.equal(Object.values(JSON.parse(db.exec('select decks from col')[0].values[0][0]))[0].name,'Meine Lektion & Text');db.close();
       }
@@ -135,5 +155,6 @@ test('real browser: project subpath, accessible responsive sliders and explicit 
       assert.deepEqual(audit.violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>n.target)})),[]);
     }
     assert.deepEqual(errors,[]);
-  } finally {await browser?.close();await new Promise(resolve=>server.httpServer.close(resolve));await rm(outDir,{recursive:true,force:true});}
+
+  } finally {await rm(savedDir,{recursive:true,force:true});await browser?.close();await new Promise(resolve=>server.httpServer.close(resolve));await rm(outDir,{recursive:true,force:true});}
 });

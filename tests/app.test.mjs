@@ -59,3 +59,11 @@ test('generation retains default filters, validation, logging and explicit indep
  doc.querySelector('[name="wordtype"]').checked=true;$('generate').click();assert.equal($('options').disabled,true);await tick();assert.equal(calls,1);assert.equal($('options').disabled,false);assert.equal($('progress').value,1);
  assert.equal($('log').querySelector('img'),null);assert.match($('log').textContent,/<img/);assert.equal(downloads.length,0);$('xlsx').click();assert.deepEqual(downloads,[[JSON.stringify(fixture()),'Vokabelliste.xlsx','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']]);assert.equal($('count').textContent,'1 Vokabel · Nomen: 1');assert.equal(doc.querySelectorAll('textarea').length,1);
 });
+test('card downloads keep proprietary extensions and explicit format MIME types',async()=>{
+ const downloads=[],payload=new Uint8Array([80,75,3,4]);
+ const {$,doc}=setup({generate:async()=>fixture(),xlsx:()=>payload,by2:()=>payload,anki:()=>payload,download:(...args)=>downloads.push(args)});
+ $('text').value='rosa';$('generate').click();await tick();
+ $('lesson').value='Meine Lektion & Text';$('lesson').dispatchEvent(new doc.defaultView.Event('input'));
+ for(const id of ['by2','apkg']){$(id).click();await tick();await tick();}
+ assert.deepEqual(downloads,[[payload,'Meine-Lektion-Text.by2','application/x-brainyoo'],[payload,'Meine-Lektion-Text.apkg','application/x-anki']]);
+});
