@@ -90,11 +90,57 @@ test('all nine card questions follow Excel first/final or second column; rich An
   assert.equal(back,'Form: rōsa<br>Grammatik: f.<br>Bedeutung I.: Blüte<br>Bedeutung II.: Rose');assert.equal(Object.values(JSON.parse(db.exec('select decks from col')[0].values[0][0]))[0].name,'  Übung :: A  ');db.close();
  }
 });
-test('PDF tables exactly match Excel headers, sorted cell rows and nonempty sections',async()=>{
- const {pdfDocument}=await import('../assets/export.mjs');const definition=pdfDocument(groups,'Übung');
- const workbook=XLSX.read(toXlsx(groups));const tables=definition.content.filter(item=>item.table);
+const verbFields={'Infinitiv':'amāre','1. Ps. Sg. Präs. Ind. Akt.':'amō','1. Ps. Sg. Perf. Ind. Akt.':'amāvī',PPP:'amātum','Konj.':'a-Konjugation','Bedeutung I.':'lieben','Bedeutung II.':'mögen','Bedeutung III.':'schätzen',Textbelege:'amāre'};
+const verbDisplayHeaders=['Infinitiv','1. Ps. Sg.\nPräs. Ind.\nAkt.','1. Ps. Sg.\nPerf. Ind.\nAkt.','PPP','Konj.','Bedeutung I.','Bedeutung II.','Bedeutung III.','Textbelege'];
+test('PDF verb display headers have exactly three rendered lines, preserve cells and fit printable margins',async()=>{
+ const {pdfDocument,toPdf,toOds,toCsv}=await import('../assets/export.mjs'),{getDocument}=await import('pdfjs-dist/legacy/build/pdf.mjs');
+ const narrowFields={...verbFields,'Konj.':'a','Bedeutung IV.':'achten','Bedeutung V.':'würdigen'};
+ const verbs={Verben:[{fields:narrowFields}]},table=pdfDocument(verbs).content.find(x=>x.table).table;
+ const pdf=await getDocument({data:await toPdf(verbs)}).promise;
+ const page=await pdf.getPage(1),items=(await page.getTextContent()).items.filter(x=>x.str.trim());
+ assert.deepEqual(table.body[0].map(cell=>cell.text),[...verbDisplayHeaders,'Bedeutung IV.','Bedeutung V.']);
+ assert.deepEqual(table.body.slice(1),[Object.values(narrowFields)]);
+ assert.deepEqual(pdfDocument({Nomen:[{fields:verbFields}]}).content.find(x=>x.table).table.body[0].map(cell=>cell.text),Object.keys(verbFields),'display mapping is limited to Verben');
+ assert.deepEqual(table.widths,pdfDocument({Nomen:[{fields:narrowFields}]}).content.find(x=>x.table).table.widths,'allocation uses original headers');
+ assert.ok(table.widths[1]<95 && table.widths[2]<95,'final compression requires wrapping');
+ for(const index of [1,2]) {
+  const x=46+table.widths.slice(0,index).reduce((sum,width)=>sum+width+11,0);
+  const lines=items.filter(item=>Math.abs(item.transform[4]-x)<0.01).slice(0,3);
+  assert.deepEqual(lines.map(item=>item.str),verbDisplayHeaders[index].split('\n'));
+  assert.ok(lines[0].transform[5]>lines[1].transform[5] && lines[1].transform[5]>lines[2].transform[5],'three distinct descending lines');
+ }
+ for(const header of verbDisplayHeaders.filter(text=>!text.includes('\n')))assert.ok(items.map(item=>item.str).join('').includes(header),header);
+ for(const value of Object.values(narrowFields))assert.ok(items.some(item=>item.str===value),value);
+ for(const item of items)assert.ok(item.transform[4]>=40-0.001 && item.transform[4]+item.width<=page.view[2]-40+0.001,`printable margins: ${item.str}`);
+ for(const bytes of [toXlsx(verbs),toOds(verbs)]) {
+  const workbook=XLSX.read(bytes),rows=XLSX.utils.sheet_to_json(workbook.Sheets.Verben,{header:1});
+  assert.deepEqual(rows[0],Object.keys(narrowFields));assert.deepEqual(rows[1],Object.values(narrowFields));
+ }
+ const csv=XLSX.read(new TextDecoder().decode(toCsv(verbs)),{type:'string',raw:true,FS:';'});
+ assert.deepEqual(XLSX.utils.sheet_to_json(csv.Sheets[csv.SheetNames[0]],{header:1})[0],['Wortart',...Object.keys(narrowFields)]);
+});
+test('PDF verb headers stay unbroken when long forms leave sufficiently wide final columns',async()=>{
+ const {pdfDocument,toPdf}=await import('../assets/export.mjs'),{getDocument}=await import('pdfjs-dist/legacy/build/pdf.mjs');
+ const fields={...verbFields,'1. Ps. Sg. Präs. Ind. Akt.':'abcdefghijklmnopqrst','1. Ps. Sg. Perf. Ind. Akt.':'abcdefghijklmnopqrstu'};
+ const verbs={Verben:[{fields}]},table=pdfDocument(verbs).content.find(x=>x.table).table;
+ assert.deepEqual(table.body[0].map(cell=>cell.text),Object.keys(fields));
+ assert.deepEqual(table.body.slice(1),[Object.values(fields)]);
+ assert.deepEqual(table.widths,[53,120,120,42,73,'*','*','*',58]);
+ const pdf=await getDocument({data:await toPdf(verbs)}).promise;
+ const page=await pdf.getPage(1),items=(await page.getTextContent()).items.filter(x=>x.str.trim());
+ for(const index of [1,2]) {
+  const header=Object.keys(fields)[index],rendered=items.filter(item=>item.str===header);
+  assert.equal(rendered.length,1,'complete original header on one line');
+  assert.ok(rendered[0].width<=table.widths[index],'natural header width fits final column');
+ }
+ for(const value of Object.values(fields))assert.ok(items.some(item=>item.str===value),value);
+ for(const item of items)assert.ok(item.transform[4]>=40-0.001 && item.transform[4]+item.width<=page.view[2]-40+0.001,`printable margins: ${item.str}`);
+});
+test('PDF tables semantically match Excel headers, sorted cell rows and nonempty sections',async()=>{
+ const {pdfDocument}=await import('../assets/export.mjs');const parityGroups={...groups,Verben:[{fields:verbFields}]},definition=pdfDocument(parityGroups,'Übung');
+ const workbook=XLSX.read(toXlsx(parityGroups));const tables=definition.content.filter(item=>item.table);
  assert.equal(tables.length,workbook.SheetNames.length);
- workbook.SheetNames.forEach((type,i)=>{const excel=XLSX.utils.sheet_to_json(workbook.Sheets[type],{header:1});assert.ok(definition.content.some(item=>item.text===type && item.bold));assert.deepEqual(tables[i].table.body[0].map(cell=>cell.text),excel[0]);assert.deepEqual(tables[i].table.body.slice(1),excel.slice(1,-1));assert.equal(tables[i].table.headerRows,1);assert.equal(tables[i].table.widths.length,excel[0].length);});
+ workbook.SheetNames.forEach((type,i)=>{const excel=XLSX.utils.sheet_to_json(workbook.Sheets[type],{header:1});assert.ok(definition.content.some(item=>item.text===type && item.bold));assert.deepEqual(tables[i].table.body[0].map(cell=>type==='Verben' && verbDisplayHeaders.slice(1,3).includes(cell.text)?cell.text.replaceAll('\n',' '):cell.text),excel[0]);assert.deepEqual(tables[i].table.body.slice(1),excel.slice(1,-1));assert.equal(tables[i].table.headerRows,1);assert.equal(tables[i].table.widths.length,excel[0].length);});
  assert.ok(definition.content.some(item=>item.text===ATTRIBUTION));assert.equal(definition.pageOrientation,'landscape');
 });
 test('PDF fixed widths use longest visible line in graphemes, readable minimum and finite cap; meanings share remainder',async()=>{

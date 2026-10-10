@@ -108,7 +108,15 @@ export function pdfDocument(groups,name='Vokabelliste') {
         cost+=next;end++;
       }
       const sectionHeaders=headers.slice(start,end),sectionBody=body.map(row=>row.slice(start,end));
-      content.push({table:{headerRows:1,widths:pdfWidths(sectionHeaders,sectionBody),body:[sectionHeaders.map(text=>({text,bold:true,fillColor:'#edf3e9'})),...sectionBody]},layout:{paddingLeft:()=>5,paddingRight:()=>5,paddingTop:()=>5,paddingBottom:()=>5},fontSize:9});
+      const widths=pdfWidths(sectionHeaders,sectionBody);
+      const displayHeaders=sectionHeaders.map((header,i)=>{
+        // Natural one-line advances in the embedded Roboto bold font at 9pt
+        // (font units / 2048 * 9). Compare usable content AFTER compression.
+        if(type==='Verben' && header==='1. Ps. Sg. Präs. Ind. Akt.' && widths[i]<96.767578125)return '1. Ps. Sg.\nPräs. Ind.\nAkt.';
+        if(type==='Verben' && header==='1. Ps. Sg. Perf. Ind. Akt.' && widths[i]<95.4580078125)return '1. Ps. Sg.\nPerf. Ind.\nAkt.';
+        return header;
+      });
+      content.push({table:{headerRows:1,widths,body:[displayHeaders.map(text=>({text,bold:true,fillColor:'#edf3e9'})),...sectionBody]},layout:{paddingLeft:()=>5,paddingRight:()=>5,paddingTop:()=>5,paddingBottom:()=>5},fontSize:9});
       start=end;
     }
   }
